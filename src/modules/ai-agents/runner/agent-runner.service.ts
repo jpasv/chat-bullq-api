@@ -130,17 +130,40 @@ export class AiAgentRunnerService {
         aggregateUsage.costUsd += response.usage.costUsd;
 
         if (response.stopReason === 'stop' || !response.message.toolCalls?.length) {
-          // Model decided not to call any more tools. We don't auto-send the
-          // textual answer — the model is expected to use replyToConversation.
-          // If it didn't, we log and move on without spamming the customer.
-          if (response.message.content && !finalAction) {
-            this.logger.warn(
-              `Run ${run.id} ended with text output but no replyToConversation tool call. Discarded: ${
-                typeof response.message.content === 'string'
-                  ? response.message.content.slice(0, 100)
-                  : '[blocks]'
-              }`,
+          // Model ended its turn without further tool calls. Some models
+          // (especially after a tool result) emit the response as plain
+          // assistant text instead of using replyToConversation explicitly.
+          // Auto-send that text as a reply so we don't drop work the model
+          // already paid for. Skip if a final action already happened
+          // (transferred / closed / delegated) — in those cases the model
+          // is just chatting to itself and shouldn't echo to the customer.
+          const text = this.extractText(response.message.content);
+          if (text && finalAction === AiFinalAction.NO_ACTION) {
+            this.logger.log(
+              `Run ${run.id}: model emitted text without replyToConversation, auto-sending as fallback`,
             );
+            try {
+              const replyTool = this.registry.get('replyToConversation');
+              const result = await replyTool.execute(
+                { text },
+                {
+                  organizationId: conversation.organizationId,
+                  conversationId: conversation.id,
+                  contactId: conversation.contactId,
+                  channelId: conversation.channelId,
+                  agentId: agent.id,
+                  runId: run.id,
+                  triggerMessageId: triggerMessage.id,
+                },
+              );
+              if (result.finalAction) {
+                finalAction = result.finalAction as AiFinalAction;
+              }
+            } catch (err: any) {
+              this.logger.error(
+                `Run ${run.id}: fallback reply failed: ${err?.message ?? err}`,
+              );
+            }
           }
           break;
         }
@@ -299,6 +322,21 @@ export class AiAgentRunnerService {
     }
 
     return results;
+  }
+
+  /**
+   * Extract plain text from an LlmMessage content. Handles both string
+   * content and content blocks (the cache_control format).
+   */
+  private extractText(content: unknown): string {
+    if (typeof content === 'string') return content.trim();
+    if (Array.isArray(content)) {
+      return content
+        .map((block: any) => (typeof block?.text === 'string' ? block.text : ''))
+        .join('')
+        .trim();
+    }
+    return '';
   }
 }
 
