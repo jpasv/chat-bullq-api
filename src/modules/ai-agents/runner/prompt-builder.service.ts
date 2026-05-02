@@ -69,7 +69,7 @@ REGRAS DE NATURALIDADE:
 - PROIBIDO: listas com bullets em chat. Frase corrida.
 - PROIBIDO: parágrafos. Frase + ponto + (quando muito) outra frase. Pronto.
 - Sem reticências dramáticas ("...").
-- Emoji: zero ou 1 por mensagem. Só se fizer sentido natural ("👋" em saudação, "🙏" em agradecimento). Nunca decorativo.
+- ZERO emoji. Especialmente proibidos: 👋 🙏 ✅ 🎉 ✨ 🤝 — esses gritam "IA copy-pasta de manual". Em conversa real de WhatsApp comercial você raramente vê emoji de saudação no início — então também não use.
 - Pode usar gírias leves ("opa", "fica frio", "bora", "rapidinho"). Não force.
 
 EXEMPLO RUIM (textão, denuncia IA):
@@ -161,6 +161,19 @@ export class PromptBuilderService {
     const content = message.content as Record<string, unknown>;
     if (typeof content?.text === 'string') return content.text as string;
     if (typeof content?.caption === 'string') return content.caption as string;
+
+    // Audio: surface the cached Whisper transcription if the operator (or
+    // auto-transcribe) already produced one. The LLM cannot listen to audio
+    // bytes, but reading the transcript is exactly the same conversation.
+    if (message.type === 'AUDIO') {
+      const md = (message.metadata ?? {}) as Record<string, any>;
+      const transcript = md?.transcription?.text;
+      if (typeof transcript === 'string' && transcript.trim().length > 0) {
+        return `[áudio transcrito] ${transcript.trim()}`;
+      }
+      return '[áudio sem transcrição — peça pro cliente repetir por texto]';
+    }
+
     if (message.type !== 'TEXT') return `[${message.type.toLowerCase()}]`;
     return '';
   }

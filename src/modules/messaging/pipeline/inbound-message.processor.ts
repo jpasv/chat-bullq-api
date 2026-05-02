@@ -11,6 +11,7 @@ import { InstagramContactEnricherService } from '../../channel-hub/adapters/inst
 import { WebhookEventsService } from '../../channel-hub/webhook-events.service';
 import { AgentRouterService } from '../../ai-agents/router/agent-router.service';
 import { AiAgentRunnerService } from '../../ai-agents/runner/agent-runner.service';
+import { TranscriptionService } from '../messages/transcription.service';
 import {
   ChannelType,
   MessageDirection,
@@ -47,6 +48,7 @@ export class InboundMessageProcessor extends WorkerHost {
     private readonly webhookEvents: WebhookEventsService,
     private readonly agentRouter: AgentRouterService,
     private readonly agentRunner: AiAgentRunnerService,
+    private readonly transcription: TranscriptionService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
   ) {
     super();
@@ -172,8 +174,25 @@ export class InboundMessageProcessor extends WorkerHost {
       // Fire-and-forget AI dispatch. Failures here MUST NOT take down the
       // inbound pipeline — they're logged and the conversation continues
       // working (the human always wins).
+      //
+      // For audio messages we transcribe first so the agent reads the text
+      // instead of seeing "[audio]" and apologizing it can't listen. Cost
+      // is ~$0.006/min — predictable and pays for itself the moment the
+      // bot answers a single audio without bouncing the customer to text.
       if (!isEcho) {
-        this.tryAiAgent(conversationId, savedMessage.id).catch((err) =>
+        const dispatch = async () => {
+          if (savedMessage.type === PrismaContentType.AUDIO) {
+            try {
+              await this.transcription.transcribe(savedMessage.id, organizationId);
+            } catch (err: any) {
+              this.logger.warn(
+                `Auto-transcribe failed for ${savedMessage.id}: ${err?.message ?? err} — agent will see [audio] only`,
+              );
+            }
+          }
+          await this.tryAiAgent(conversationId, savedMessage.id);
+        };
+        dispatch().catch((err) =>
           this.logger.error(
             `AI dispatch failed for conv ${conversationId}: ${err?.message ?? err}`,
           ),
