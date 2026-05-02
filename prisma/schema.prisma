@@ -124,6 +124,14 @@ model Organization {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  // ─── AI settings ────────────────────────────────
+  aiEnabled            Boolean @default(true)  @map("ai_enabled")
+  aiTimezone           String  @default("America/Sao_Paulo") @map("ai_timezone")
+  aiBusinessHours      Json?   @map("ai_business_hours")
+  aiOutOfHoursMessage  String? @map("ai_out_of_hours_message")
+  aiAutoDisableOnHuman Boolean @default(true)  @map("ai_auto_disable_on_human")
+  aiMonthlyTokenCap    Int?    @map("ai_monthly_token_cap")
+
   members       UserOrganization[]
   channels      Channel[]
   contacts      Contact[]
@@ -135,6 +143,7 @@ model Organization {
   notifications Notification[]
   invitations   Invitation[]
   apiKeys       ApiKey[]
+  aiAgents      AiAgent[]
 
   @@map("organizations")
 }
@@ -208,6 +217,7 @@ model Channel {
   chatbotFlows    ChatbotFlowChannel[]
   syncJobs        ChannelSyncJob[]
   channelAgents   ChannelAgent[]
+  aiAgentChannels AiAgentChannel[]
 
   @@index([organizationId, type], name: "idx_channel_org_type")
   @@map("channels")
@@ -313,6 +323,7 @@ model Contact {
   channels      ContactChannel[]
   conversations Conversation[]
   tags          ContactTag[]
+  aiMemories    AiAgentMemory[]
 
   @@index([organizationId, phone], name: "idx_contact_org_phone")
   @@index([organizationId, email], name: "idx_contact_org_email")
@@ -358,17 +369,26 @@ model Conversation {
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 
+  // ─── AI state ───────────────────────────────────
+  aiEnabled       Boolean   @default(true)  @map("ai_enabled")
+  aiDisabledBy    String?   @map("ai_disabled_by")
+  aiDisabledAt    DateTime? @map("ai_disabled_at")
+  activeAgentId   String?   @map("active_agent_id")
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channel      Channel      @relation(fields: [channelId], references: [id])
   contact      Contact      @relation(fields: [contactId], references: [id])
   assignedTo   User?        @relation("AssignedAgent", fields: [assignedToId], references: [id], onDelete: SetNull)
   department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  activeAgent  AiAgent?     @relation("ActiveAgent", fields: [activeAgentId], references: [id], onDelete: SetNull)
 
   messages      Message[]
   tags          ConversationTag[]
   internalNotes InternalNote[]
   auditLogs     ConversationAuditLog[]
   rating        ConversationRating?
+  aiRuns        AiAgentRun[]
+  aiHandoffs    AiAgentHandoff[]
 
   @@index([organizationId, status], name: "idx_conv_org_status")
   @@index([organizationId, assignedToId], name: "idx_conv_org_agent")
@@ -669,4 +689,182 @@ model ApiKey {
   @@index([userId], name: "idx_apikey_user")
   @@index([hashedKey], name: "idx_apikey_hash")
   @@map("api_keys")
+}
+
+// ═══════════════════════════════════════════════════
+// AI AGENTS
+// ═══════════════════════════════════════════════════
+
+enum AiAgentKind {
+  ORCHESTRATOR
+  WORKER
+}
+
+enum AiAgentMode {
+  AUTONOMOUS
+  COPILOT
+  DISABLED
+}
+
+enum AiAgentTrigger {
+  ALWAYS
+  OFF_HOURS
+  NO_HUMAN_ASSIGNED
+}
+
+enum AiRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum AiFinalAction {
+  REPLIED
+  DELEGATED
+  HANDED_BACK
+  TRANSFERRED_TO_HUMAN
+  CLOSED_CONVERSATION
+  NO_ACTION
+}
+
+model AiAgent {
+  id             String      @id @default(cuid())
+  organizationId String      @map("organization_id")
+  name           String
+  description    String?
+  avatarUrl      String?     @map("avatar_url")
+
+  kind           AiAgentKind @default(WORKER)
+  category       String?
+  capabilities   String[]    @default([])
+
+  modelId        String      @map("model_id")
+  modelParams    Json?       @map("model_params")
+  systemPrompt   String      @map("system_prompt")
+  temperature    Float       @default(0.7)
+  maxTokens      Int         @default(2048) @map("max_tokens")
+
+  canRespondDirectly Boolean @default(true) @map("can_respond_directly")
+  isActive       Boolean     @default(true) @map("is_active")
+
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  channels       AiAgentChannel[]
+  memories       AiAgentMemory[]
+  runs           AiAgentRun[]
+  handoffsFrom   AiAgentHandoff[]  @relation("HandoffFrom")
+  handoffsTo     AiAgentHandoff[]  @relation("HandoffTo")
+  activeOn       Conversation[]    @relation("ActiveAgent")
+
+  @@index([organizationId], name: "idx_ai_agent_org")
+  @@index([organizationId, kind], name: "idx_ai_agent_org_kind")
+  @@map("ai_agents")
+}
+
+model AiAgentChannel {
+  id        String         @id @default(cuid())
+  agentId   String         @map("agent_id")
+  channelId String         @map("channel_id")
+  mode      AiAgentMode    @default(AUTONOMOUS)
+  trigger   AiAgentTrigger @default(ALWAYS)
+
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  agent     AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, channelId])
+  @@index([channelId], name: "idx_ai_agent_channel_channel")
+  @@map("ai_agent_channels")
+}
+
+model AiAgentMemory {
+  id                String   @id @default(cuid())
+  agentId           String   @map("agent_id")
+  contactId         String   @map("contact_id")
+  summary           String?
+  facts             Json     @default("{}")
+  totalInteractions Int      @default(0) @map("total_interactions")
+  lastInteractionAt DateTime? @map("last_interaction_at")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  agent             AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  contact           Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, contactId])
+  @@index([agentId], name: "idx_ai_memory_agent")
+  @@index([contactId], name: "idx_ai_memory_contact")
+  @@map("ai_agent_memories")
+}
+
+model AiAgentRun {
+  id               String        @id @default(cuid())
+  organizationId   String        @map("organization_id")
+  conversationId   String        @map("conversation_id")
+  agentId          String        @map("agent_id")
+  triggerMessageId String?       @map("trigger_message_id")
+
+  status           AiRunStatus   @default(RUNNING)
+  finalAction      AiFinalAction? @map("final_action")
+  errorMessage     String?       @map("error_message")
+
+  modelId          String        @map("model_id")
+  inputTokens      Int           @default(0) @map("input_tokens")
+  outputTokens     Int           @default(0) @map("output_tokens")
+  cacheReadTokens  Int           @default(0) @map("cache_read_tokens")
+  cacheWriteTokens Int           @default(0) @map("cache_write_tokens")
+  costUsd          Decimal       @default(0) @map("cost_usd") @db.Decimal(10, 6)
+  durationMs       Int?          @map("duration_ms")
+
+  startedAt        DateTime      @default(now()) @map("started_at")
+  finishedAt       DateTime?     @map("finished_at")
+
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agent            AiAgent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  toolCalls        AiToolCall[]
+
+  @@index([organizationId, startedAt], name: "idx_ai_run_org_time")
+  @@index([conversationId], name: "idx_ai_run_conv")
+  @@index([agentId], name: "idx_ai_run_agent")
+  @@map("ai_agent_runs")
+}
+
+model AiToolCall {
+  id         String   @id @default(cuid())
+  runId      String   @map("run_id")
+  toolName   String   @map("tool_name")
+  input      Json
+  output     Json?
+  error      String?
+  durationMs Int?     @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  run        AiAgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId], name: "idx_ai_tool_call_run")
+  @@map("ai_tool_calls")
+}
+
+model AiAgentHandoff {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  fromAgentId    String?  @map("from_agent_id")
+  toAgentId      String   @map("to_agent_id")
+  reason         String?
+  briefing       String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  fromAgent    AiAgent?     @relation("HandoffFrom", fields: [fromAgentId], references: [id], onDelete: SetNull)
+  toAgent      AiAgent      @relation("HandoffTo", fields: [toAgentId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId], name: "idx_ai_handoff_conv")
+  @@map("ai_agent_handoffs")
 }
