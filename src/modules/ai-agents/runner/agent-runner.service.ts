@@ -163,8 +163,7 @@ export class AiAgentRunnerService {
           // assistant text instead of using replyToConversation explicitly.
           // Auto-send that text as a reply so we don't drop work the model
           // already paid for. Skip if a final action already happened
-          // (transferred / closed / delegated) — in those cases the model
-          // is just chatting to itself and shouldn't echo to the customer.
+          // (transferred / closed / delegated) or a reply was already sent.
           const text = this.extractText(response.message.content);
           if (text && finalAction === AiFinalAction.NO_ACTION) {
             this.logger.log(

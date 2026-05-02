@@ -37,6 +37,18 @@ export class OutboundMessageProcessor extends WorkerHost {
 
     const adapter = this.adapterRegistry.getOutbound(channel.type);
 
+    // Humanize: if this message was sent by an AI agent, simulate typing
+    // delay proportional to text length before actually sending. Customers
+    // perceive instant replies as bot-like; a 2-4s "typing..." gap with the
+    // typing indicator on feels like a real person on the other side.
+    await this.simulateTypingIfAiMessage({
+      messageId,
+      channel,
+      contactExternalId,
+      message,
+      adapter,
+    });
+
     try {
       const result = await adapter.sendMessage(
         channel,
@@ -157,6 +169,66 @@ export class OutboundMessageProcessor extends WorkerHost {
       'message:status',
       payload,
     );
+  }
+
+  /**
+   * Pre-send humanization for AI replies: turn on the typing indicator on
+   * the customer's chat and wait for a delay proportional to how long a
+   * human would actually take to type the message.
+   *
+   * Only runs for messages flagged as coming from an AI agent — handled by
+   * checking message.metadata.aiAgentId. Manual operator replies and
+   * webhook echoes are sent immediately, no fake typing.
+   *
+   * Delay model: 900ms base + 28ms/char, clamped to [1000, 6000]ms.
+   * For a 12-char "opa, beleza!" → ~1.2s. For a 100-char message → ~3.7s.
+   * Caps at 6s so the customer never feels the bot froze.
+   */
+  private async simulateTypingIfAiMessage(args: {
+    messageId: string;
+    channel: { id: string; type: any };
+    contactExternalId: string;
+    message: NormalizedOutboundMessage;
+    adapter: any;
+  }): Promise<void> {
+    try {
+      const row = await this.prisma.message.findUnique({
+        where: { id: args.messageId },
+        select: { metadata: true, conversationId: true },
+      });
+      const aiAgentId = (row?.metadata as any)?.aiAgentId;
+      if (!aiAgentId) return; // not an AI message, send immediately
+
+      const text = (args.message?.content as any)?.text ?? '';
+      if (typeof text !== 'string' || text.length === 0) return;
+
+      const delayMs = Math.min(
+        6000,
+        Math.max(1000, 900 + text.length * 28),
+      );
+
+      // Fire typing indicator on the underlying channel (WhatsApp/IG).
+      // Don't await — start typing AND start counting delay in parallel.
+      args.adapter
+        .sendTypingIndicator(args.channel, args.contactExternalId)
+        .catch((err: any) =>
+          this.logger.warn(`Typing indicator failed: ${err?.message ?? err}`),
+        );
+
+      // Notify the in-app UI (Hoppe) that the agent is "typing".
+      if (row?.conversationId) {
+        this.realtimeGateway.emitToConversation(
+          row.conversationId,
+          'agent:typing',
+          { conversationId: row.conversationId, agentId: aiAgentId },
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    } catch (err: any) {
+      // Never let humanization break sending.
+      this.logger.warn(`simulateTyping failed: ${err?.message ?? err}`);
+    }
   }
 }
 
