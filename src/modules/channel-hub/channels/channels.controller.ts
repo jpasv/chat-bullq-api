@@ -26,8 +26,10 @@ export class ChannelsController {
   constructor(private readonly service: ChannelsService) {}
 
   @Post()
-  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
-  @ApiOperation({ summary: 'Create a new channel' })
+  @ApiOperation({
+    summary:
+      'Create a new channel. Any member can create — AGENTs are auto-granted access to the channel they create (deny-by-default for everyone else).',
+  })
   create(
     @CurrentOrg() org: { id: string; userOrganizationId: string; userRole: OrgRole },
     @Body() dto: CreateChannelDto,
