@@ -128,31 +128,49 @@ export class ConversationsService {
   async toggleAi(
     id: string,
     organizationId: string,
-    enabled: boolean,
+    enabled: boolean | null,
     actorId: string,
     access: ChannelAccess = 'ALL',
   ) {
     await this.findOne(id, organizationId, access);
+
+    // Tri-state:
+    //   null  = limpa override, conversa volta a seguir regras globais
+    //   true  = força ON (sobrepõe kill switch e horário)
+    //   false = força OFF
     const updated = await this.prisma.conversation.update({
       where: { id },
-      data: enabled
-        ? {
-            aiEnabled: true,
-            aiDisabledBy: null,
-            aiDisabledAt: null,
-          }
-        : {
-            aiEnabled: false,
-            aiDisabledBy: actorId,
-            aiDisabledAt: new Date(),
-            activeAgentId: null,
-          },
+      data:
+        enabled === null
+          ? {
+              aiEnabled: null,
+              aiDisabledBy: null,
+              aiDisabledAt: null,
+            }
+          : enabled === true
+            ? {
+                aiEnabled: true,
+                aiDisabledBy: null,
+                aiDisabledAt: null,
+              }
+            : {
+                aiEnabled: false,
+                aiDisabledBy: actorId,
+                aiDisabledAt: new Date(),
+                activeAgentId: null,
+              },
     });
+
     await this.prisma.conversationAuditLog.create({
       data: {
         conversationId: id,
         actorId,
-        action: enabled ? 'AI_RESUMED' : 'AI_PAUSED',
+        action:
+          enabled === null
+            ? 'AI_OVERRIDE_CLEARED'
+            : enabled
+              ? 'AI_FORCED_ON'
+              : 'AI_FORCED_OFF',
         metadata: {},
       },
     });

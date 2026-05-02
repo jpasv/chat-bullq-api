@@ -369,8 +369,11 @@ model Conversation {
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 
-  // ─── AI state ───────────────────────────────────
-  aiEnabled       Boolean   @default(true)  @map("ai_enabled")
+  // ─── AI state (tri-state override) ──────────────
+  // null  = segue regras globais (org.aiEnabled, business hours, agent)
+  // true  = força ON (sobrepõe global — IA roda mesmo com kill switch off)
+  // false = força OFF (sobrepõe global — IA não roda mesmo com kill switch on)
+  aiEnabled       Boolean?  @map("ai_enabled")
   aiDisabledBy    String?   @map("ai_disabled_by")
   aiDisabledAt    DateTime? @map("ai_disabled_at")
   activeAgentId   String?   @map("active_agent_id")

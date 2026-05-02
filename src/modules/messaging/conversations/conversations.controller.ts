@@ -98,16 +98,20 @@ export class ConversationsController {
   @Patch(':id/ai')
   @ApiOperation({
     summary:
-      'Pause or resume the AI on this conversation. When paused, no agent will respond until a human reactivates.',
+      'Override AI behavior on this conversation. enabled=true forces AI on (overrides kill switch and business hours), false forces off, null clears the override (follows global rules).',
   })
   toggleAi(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @CurrentUser('id') userId: string,
     @CurrentChannelAccess() access: ChannelAccess,
-    @Body() body: { enabled: boolean },
+    @Body() body: { enabled: boolean | null },
   ) {
-    return this.service.toggleAi(id, orgId, !!body?.enabled, userId, access);
+    const value =
+      body?.enabled === null || body?.enabled === undefined
+        ? null
+        : !!body.enabled;
+    return this.service.toggleAi(id, orgId, value, userId, access);
   }
 
   @Post(':id/close')

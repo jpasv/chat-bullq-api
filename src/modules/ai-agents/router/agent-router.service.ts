@@ -33,24 +33,34 @@ export class AgentRouterService {
     handle: boolean;
     reason?: string;
   }> {
-    // 1. Conversation-level toggle (highest priority — set by humans).
-    if (!conversation.aiEnabled) {
-      return { handle: false, reason: 'conversation.aiEnabled=false' };
+    // Tri-state conversation override:
+    //   conv.aiEnabled === false → forçada OFF, NÃO roda mesmo com tudo ligado
+    //   conv.aiEnabled === true  → forçada ON, sobrepõe org/horário
+    //   conv.aiEnabled === null  → segue regras globais
+    const convOverride = conversation.aiEnabled;
+
+    if (convOverride === false) {
+      return { handle: false, reason: 'conversation.aiEnabled=force-off' };
     }
 
-    // 2. Organization-level kill switch + business hours.
+    // Carrega org pra checagens globais (e cap de token mais abaixo).
     const org = await this.prisma.organization.findUnique({
       where: { id: conversation.organizationId },
     });
     if (!org) return { handle: false, reason: 'org-not-found' };
-    if (!org.aiEnabled) return { handle: false, reason: 'org.aiEnabled=false' };
 
-    if (!this.isWithinBusinessHours(org)) {
-      return { handle: false, reason: 'outside-business-hours' };
+    if (convOverride !== true) {
+      // Não tem override pra ON → regras globais valem.
+      if (!org.aiEnabled) {
+        return { handle: false, reason: 'org.aiEnabled=false' };
+      }
+      if (!this.isWithinBusinessHours(org)) {
+        return { handle: false, reason: 'outside-business-hours' };
+      }
     }
 
-    // 3. There must be an agent wired to this channel in AUTONOMOUS mode,
-    //    OR an explicit activeAgentId already set on the conversation.
+    // Mesmo com override pra ON, ainda precisa existir um agente ativo
+    // pra atender essa conversa. Sem isso, não tem o que rodar.
     if (!conversation.activeAgentId) {
       const link = await this.prisma.aiAgentChannel.findFirst({
         where: {
@@ -64,7 +74,7 @@ export class AgentRouterService {
       }
     }
 
-    // 4. Monthly token cap (best-effort; runs in same month).
+    // Cap mensal vale sempre — proteção de orçamento, não dá pra furar.
     if (org.aiMonthlyTokenCap) {
       const startOfMonth = new Date();
       startOfMonth.setDate(1);

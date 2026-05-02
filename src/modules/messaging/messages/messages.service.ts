@@ -68,12 +68,19 @@ export class MessagesService {
     // Auto-pause the AI on this conversation when a human replies. Behavior
     // is org-configurable (aiAutoDisableOnHuman, default true). The human
     // is now driving — don't let the agent compete with them mid-thread.
+    //
+    // Skip auto-pause if the conversation already has an explicit force-off,
+    // OR if a human explicitly forced AI ON for this conversation (aiEnabled=true).
+    // Force-on means "I want the AI here even if I send messages" — usually a
+    // human + AI cooperating in COPILOT-style mode.
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
       select: { aiAutoDisableOnHuman: true },
     });
     const shouldDisableAi =
-      conversation.aiEnabled && (org?.aiAutoDisableOnHuman ?? true);
+      conversation.aiEnabled !== false &&
+      conversation.aiEnabled !== true &&
+      (org?.aiAutoDisableOnHuman ?? true);
 
     await this.prisma.conversation.update({
       where: { id: conversation.id },
