@@ -19,6 +19,7 @@ import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { PublicApiModule } from './modules/public-api/public-api.module';
 import { ChannelAccessModule } from './modules/iam/channel-access/channel-access.module';
 import { AiAgentsModule } from './modules/ai-agents/ai-agents.module';
+import { InboxViewsModule } from './modules/inbox-views/inbox-views.module';
 import redisConfig from './config/redis.config';
 
 @Module({
@@ -52,6 +53,7 @@ import redisConfig from './config/redis.config';
     ApiKeysModule,
     PublicApiModule,
     AiAgentsModule,
+    InboxViewsModule,
   ],
 })
 export class AppModule {}

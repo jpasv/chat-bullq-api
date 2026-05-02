@@ -109,6 +109,7 @@ model User {
   pushSubscriptions     PushSubscription[]
   sentInvitations       Invitation[]
   apiKeys               ApiKey[]
+  inboxViews            InboxView[]
 
   @@map("users")
 }
@@ -146,6 +147,7 @@ model Organization {
   aiAgents      AiAgent[]
   aiTools       AiTool[]
   aiSkills      AiSkill[]
+  inboxViews    InboxView[]
 
   @@map("organizations")
 }
@@ -753,6 +755,14 @@ model AiAgent {
   canRespondDirectly Boolean @default(true) @map("can_respond_directly")
   isActive       Boolean     @default(true) @map("is_active")
 
+  // ─── Follow-up automation ──────────────────────────────────
+  // Quando este agent envia uma mensagem e o cliente não responde, o
+  // sistema agenda follow-ups automáticos seguindo essa cadência (em horas).
+  // Default: ORCHESTRATOR/sales = persistente; WORKER suporte = curto.
+  // Ajustável por agent no Jarvis.
+  followUpEnabled       Boolean @default(true) @map("follow_up_enabled")
+  followUpCadenceHours  Int[]   @default([4, 24, 72, 168, 336]) @map("follow_up_cadence_hours")
+
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
   deletedAt      DateTime?   @map("deleted_at")
@@ -1014,4 +1024,30 @@ model AiAgentHandoff {
 
   @@index([conversationId], name: "idx_ai_handoff_conv")
   @@map("ai_agent_handoffs")
+}
+
+// ─── Inbox views (saved filtered inboxes per user) ──────────
+//
+// Each user can create personal "inbox views" with custom filters
+// (channel, status, assignee, tags). The default "Geral" inbox is
+// hard-coded in the UI and shows everything; custom views live in this
+// table and are scoped to the creator.
+model InboxView {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  userId         String   @map("user_id")
+  name           String
+  icon           String?       // lucide-react icon name (Inbox, MessageSquare, ...)
+  color          String?       // tailwind color hint: "green", "pink", "violet", ...
+  filters        Json     @default("{}")   // { channelIds, statuses, assignedTo, tagIds, hasUnread }
+  order          Int      @default(0)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, order])
+  @@index([organizationId, userId])
+  @@map("inbox_views")
 }
