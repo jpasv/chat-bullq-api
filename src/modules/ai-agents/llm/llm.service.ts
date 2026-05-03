@@ -60,16 +60,8 @@ export class LlmService {
         usage: { include: true },
       } as any);
     } catch (err: any) {
-      // OpenAI SDK exposes provider error body under `err.error` (newer) or
-      // `err.response?.data` (older). Surface both so we can debug 400s
-      // instead of seeing a generic "Provider returned error".
-      const providerBody =
-        err?.error?.message ??
-        err?.error?.error?.message ??
-        err?.response?.data?.error?.message ??
-        err?.response?.data?.message;
       const status = err?.status ?? err?.response?.status;
-      const detail = providerBody ?? err?.message ?? 'unknown';
+      const detail = extractProviderErrorDetail(err);
       const toolNames = tools?.map((t: any) => t.function?.name).join(',');
       this.logger.error(
         `LLM call failed [${req.modelId}] status=${status ?? '?'}: ${detail} | tools=[${toolNames ?? ''}]`,
@@ -317,6 +309,77 @@ export class LlmService {
       this.logger.warn(`Tool call had unparseable arguments: ${raw}`);
       return {};
     }
+  }
+}
+
+/**
+ * OpenRouter wraps upstream provider errors in a generic envelope:
+ *   { error: { code, message: "Provider returned error",
+ *              metadata: { raw, provider_name } } }
+ *
+ * The actual reason from Anthropic/OpenAI/etc lives in `metadata.raw`
+ * as a JSON string (sometimes a plain string). We dig through every
+ * shape we've seen and prefer the most specific message available.
+ *
+ * Returns a single human-readable line — what the agent run UI shows
+ * to the operator and what the backend logs to error logs.
+ */
+function extractProviderErrorDetail(err: any): string {
+  const candidates: string[] = [];
+
+  // 1. OpenRouter envelope, accessible from multiple paths depending on
+  //    SDK version.
+  const envelopes = [
+    err?.error,
+    err?.error?.error,
+    err?.body?.error,
+    err?.response?.data?.error,
+    err?.response?.data,
+  ].filter(Boolean);
+
+  for (const e of envelopes) {
+    // metadata.raw — actual upstream body (often JSON string).
+    const raw = e?.metadata?.raw ?? e?.metadata?.body;
+    if (typeof raw === 'string' && raw.length > 0) {
+      const parsed = tryParseJson(raw);
+      if (parsed) {
+        const m =
+          parsed?.error?.message ??
+          parsed?.error?.error?.message ??
+          parsed?.message;
+        const t = parsed?.error?.type ?? parsed?.type;
+        if (typeof m === 'string' && m.length > 0) {
+          candidates.push(t ? `${t}: ${m}` : m);
+        }
+      } else {
+        // Not JSON — provider returned plain text. Trim the noise.
+        candidates.push(raw.slice(0, 500));
+      }
+    }
+    // Fallback to envelope-level fields, but skip the generic OpenRouter
+    // string when we already have a more specific one.
+    if (typeof e?.message === 'string' && e.message !== 'Provider returned error') {
+      candidates.push(e.message);
+    }
+  }
+
+  // 2. SDK-level fallbacks.
+  if (typeof err?.message === 'string' && err.message !== 'Provider returned error') {
+    candidates.push(err.message);
+  }
+
+  // First non-empty wins. If everything else is empty, we still want to
+  // surface SOMETHING — fall back to the generic line so the run isn't
+  // labelled "unknown".
+  const detail = candidates.find((c) => c && c.trim().length > 0);
+  return detail ?? err?.error?.message ?? err?.message ?? 'unknown';
+}
+
+function tryParseJson(s: string): any | null {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
   }
 }
 

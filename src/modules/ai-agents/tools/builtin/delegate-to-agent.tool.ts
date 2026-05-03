@@ -11,20 +11,16 @@ import { RealtimeGateway } from '../../../realtime/realtime.gateway';
 import { AiTool, ToolContext, ToolResult } from '../tool.types';
 
 /**
- * ORCHESTRATOR-only. Hands the conversation over to a WORKER agent in a
- * single atomic call:
- *   1. (optional but strongly recommended) sends a transition message to
- *      the customer ("aqui é o X, vou te passar pra Y, ela cuida disso");
- *   2. flips `conversation.activeAgentId` to the worker;
- *   3. logs an AiAgentHandoff record + audit log.
- *
- * Bundling the transition message inside the same tool prevents the LLM
- * from announcing "vou te passar pra X" via replyToConversation and then
- * forgetting to actually call delegateToAgent — which would leave the
- * customer hanging waiting for the worker that never gets activated.
+ * ORCHESTRATOR-only. Silently hands the conversation over to a WORKER agent:
+ *   1. flips `conversation.activeAgentId` to the worker;
+ *   2. logs an AiAgentHandoff record + audit log;
+ *   3. (almost never) sends a transition message — only when explicitly
+ *      passed; default is silent so the customer doesn't see "vou te passar
+ *      pra X" before X assumes anyway.
  *
  * After this tool runs, the auto-chain in AgentRunnerService picks up the
- * new active agent and fires the worker run immediately.
+ * new active agent and fires the worker run immediately. The worker reads
+ * the full history and responds directly — no introductory message needed.
  */
 @Injectable()
 export class DelegateToAgentTool implements AiTool {
@@ -32,11 +28,11 @@ export class DelegateToAgentTool implements AiTool {
 
   readonly name = 'delegateToAgent';
   readonly description =
-    'Encaminha a conversa pra um especialista em UMA chamada atômica. Inclua transitionMessage com a fala curta que o cliente vê ANTES de você sair de cena. NUNCA use replyToConversation antes disso pra anunciar a transferência — sempre passe a mensagem aqui dentro.';
+    'Encaminha a conversa pra um especialista. O handoff é SILENCIOSO por padrão — o worker assume e responde direto, sem você anunciar nada. NÃO use transitionMessage (deixa em branco). NÃO use replyToConversation antes pra dizer "vou te passar pra X" — isso é ruído, o cliente vê duas mensagens redundantes (sua "vou passar" + a do worker se apresentando). Só preencha transitionMessage em casos raros e específicos onde o cliente PRECISA saber da troca antes de receber a próxima resposta.';
   readonly parameters = {
     type: 'object',
     additionalProperties: false,
-    required: ['agentId', 'reason', 'transitionMessage'],
+    required: ['agentId', 'reason'],
     properties: {
       agentId: {
         type: 'string',
@@ -52,8 +48,7 @@ export class DelegateToAgentTool implements AiTool {
       transitionMessage: {
         type: 'string',
         description:
-          'A mensagem curta enviada AO CLIENTE anunciando a transferência (ex: "show, vou te passar pra Lívia, ela cuida de acesso e resolve em segundos"). Tom humano, sem travessão "—" nem en-dash "–", sem markdown.',
-        minLength: 1,
+          'OPCIONAL e desencorajado. Deixe vazio na maioria dos casos. Só use se o cliente realmente precisa saber da troca antes da próxima resposta.',
         maxLength: 600,
       },
       briefing: {
@@ -77,20 +72,13 @@ export class DelegateToAgentTool implements AiTool {
   ): Promise<ToolResult> {
     const targetAgentId = String(input.agentId ?? '').trim();
     const reason = String(input.reason ?? '').trim();
-    const transitionMessage = String(input.transitionMessage ?? '').trim();
+    const transitionMessage = input.transitionMessage
+      ? String(input.transitionMessage).trim()
+      : '';
     const briefing = input.briefing ? String(input.briefing).trim() : null;
 
     if (!targetAgentId) {
       return { output: { ok: false, error: 'agentId is required' } };
-    }
-    if (!transitionMessage) {
-      return {
-        output: {
-          ok: false,
-          error:
-            'transitionMessage is required — sem mensagem de transição o cliente fica sem saber que houve handoff',
-        },
-      };
     }
 
     const target = await this.prisma.aiAgent.findFirst({
@@ -141,23 +129,11 @@ export class DelegateToAgentTool implements AiTool {
       };
     }
 
-    // Atomic: send transition message + flip active agent + log handoff.
-    const [message] = await this.prisma.$transaction([
-      this.prisma.message.create({
-        data: {
-          conversationId: ctx.conversationId,
-          direction: MessageDirection.OUTBOUND,
-          type: MessageContentType.TEXT,
-          content: { text: transitionMessage },
-          status: MessageStatus.QUEUED,
-          senderName: fromAgent?.name ?? 'AI',
-          metadata: {
-            aiAgentId: ctx.agentId,
-            runId: ctx.runId,
-            handoffTransition: true,
-          },
-        },
-      }),
+    // Atomic: flip active agent + log handoff. Only emits a customer-visible
+    // message when the orchestrator explicitly asked for one — silent
+    // handoff is the default (worker assumes and replies directly, no
+    // "vou te passar pra X" preamble).
+    const txOps: any[] = [
       this.prisma.conversation.update({
         where: { id: ctx.conversationId },
         data: { activeAgentId: target.id, lastMessageAt: new Date() },
@@ -181,20 +157,47 @@ export class DelegateToAgentTool implements AiTool {
             toAgentId: target.id,
             reason,
             runId: ctx.runId,
+            silent: !transitionMessage,
           },
         },
       }),
-    ]);
+    ];
+    if (transitionMessage) {
+      txOps.unshift(
+        this.prisma.message.create({
+          data: {
+            conversationId: ctx.conversationId,
+            direction: MessageDirection.OUTBOUND,
+            type: MessageContentType.TEXT,
+            content: { text: transitionMessage },
+            status: MessageStatus.QUEUED,
+            senderName: fromAgent?.name ?? 'AI',
+            metadata: {
+              aiAgentId: ctx.agentId,
+              runId: ctx.runId,
+              handoffTransition: true,
+            },
+          },
+        }),
+      );
+    }
 
-    // Realtime + outbound queue happen after the transaction commits.
-    this.realtime.emitToChannel(ctx.channelId, 'message:new', {
-      message,
-      conversationId: ctx.conversationId,
-      contactId: ctx.contactId,
-    });
-    this.realtime.emitToConversation(ctx.conversationId, 'message:new', {
-      message,
-    });
+    const txResult = await this.prisma.$transaction(txOps);
+    const message = transitionMessage ? txResult[0] : null;
+
+    // Realtime: always announce the delegation (so other UIs reflect the
+    // active-agent flip), but only emit message:new when there's actually
+    // a message to render.
+    if (message) {
+      this.realtime.emitToChannel(ctx.channelId, 'message:new', {
+        message,
+        conversationId: ctx.conversationId,
+        contactId: ctx.contactId,
+      });
+      this.realtime.emitToConversation(ctx.conversationId, 'message:new', {
+        message,
+      });
+    }
     this.realtime.emitToConversation(
       ctx.conversationId,
       'conversation:ai-delegated',
@@ -206,36 +209,40 @@ export class DelegateToAgentTool implements AiTool {
       },
     );
 
-    await this.outboundQueue.add(
-      'send-outbound',
-      {
-        messageId: message.id,
-        channelId: ctx.channelId,
-        contactExternalId: contactChannel.externalId,
-        message: {
-          type: MessageContentType.TEXT,
-          content: { text: transitionMessage },
+    if (message) {
+      await this.outboundQueue.add(
+        'send-outbound',
+        {
+          messageId: message.id,
+          channelId: ctx.channelId,
+          contactExternalId: contactChannel.externalId,
+          message: {
+            type: MessageContentType.TEXT,
+            content: { text: transitionMessage },
+          },
         },
-      },
-      {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5_000 },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
-    );
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5_000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+    }
 
     this.logger.log(
-      `Orchestrator ${ctx.agentId} delegated conv ${ctx.conversationId} → ${target.name} (${target.id}): ${reason}`,
+      `Orchestrator ${ctx.agentId} delegated conv ${ctx.conversationId} → ${target.name} (${target.id})${transitionMessage ? '' : ' [silent]'}: ${reason}`,
     );
 
     return {
       output: {
         ok: true,
         delegatedTo: { agentId: target.id, name: target.name },
-        transitionMessageId: message.id,
-        message:
-          'Delegação concluída. A mensagem de transição foi enviada e o worker já assumiu — o run dele dispara em sequência automaticamente.',
+        ...(message ? { transitionMessageId: message.id } : {}),
+        silent: !transitionMessage,
+        message: transitionMessage
+          ? 'Delegação concluída com mensagem de transição. Worker assume em sequência.'
+          : 'Delegação silenciosa concluída — worker assume e responde direto, sem mensagem de transição.',
       },
       finalAction: 'DELEGATED',
     };
