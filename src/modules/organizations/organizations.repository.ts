@@ -35,9 +35,22 @@ export class OrganizationsRepository {
     });
   }
 
-  async findMembership(userId: string, organizationId: string) {
+  /**
+   * Aceita tanto o `userOrganization.id` (membership id, vem do listMembers
+   * no frontend e é o que faz mais sentido pra rotas /members/:memberId)
+   * quanto o `userId` (compatibilidade com chamadas legadas que passavam
+   * o id do user direto). Tenta o id de membership primeiro porque é o
+   * caso semanticamente correto da URL.
+   */
+  async findMembership(memberIdOrUserId: string, organizationId: string) {
+    const byMembershipId = await this.prisma.userOrganization.findFirst({
+      where: { id: memberIdOrUserId, organizationId },
+    });
+    if (byMembershipId) return byMembershipId;
     return this.prisma.userOrganization.findUnique({
-      where: { userId_organizationId: { userId, organizationId } },
+      where: {
+        userId_organizationId: { userId: memberIdOrUserId, organizationId },
+      },
     });
   }
 
