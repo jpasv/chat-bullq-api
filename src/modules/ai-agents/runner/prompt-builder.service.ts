@@ -196,6 +196,26 @@ export class PromptBuilderService {
       }
     }
 
+    // Anthropic exige que `messages` termine em role=user — caso contrário
+    // 400 "This model does not support assistant message prefill". Acontece
+    // quando o histórico tem outbound trailing (handoff invisível, humano
+    // respondeu após último inbound, etc). Empurra um turno user neutro com
+    // o triggerMessage pra forçar a alternância e dar contexto explícito.
+    const tail = messages[messages.length - 1];
+    if (!tail || tail.role !== 'user') {
+      const triggerText = this.extractText(ctx.triggerMessage);
+      if (triggerText) {
+        messages.push({ role: 'user', content: triggerText });
+      } else {
+        // Trigger não-textual (reaction, etc). Fallback minimal pra manter
+        // a conversa viva sem inventar conteúdo do cliente.
+        messages.push({
+          role: 'user',
+          content: '[continue]',
+        });
+      }
+    }
+
     return messages;
   }
 
