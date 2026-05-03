@@ -20,6 +20,7 @@ import {
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
   private readonly client: OpenAI;
+  private readonly apiKey: string;
 
   constructor(config: ConfigService) {
     const apiKey = config.get<string>('OPENROUTER_API_KEY');
@@ -28,6 +29,7 @@ export class LlmService {
         'OPENROUTER_API_KEY not set — AI agents will fail at runtime',
       );
     }
+    this.apiKey = apiKey ?? '';
     this.client = new OpenAI({
       apiKey: apiKey ?? 'missing',
       baseURL: 'https://openrouter.ai/api/v1',
@@ -37,6 +39,48 @@ export class LlmService {
         'X-Title': 'Chat BullQ',
       },
     });
+  }
+
+  /**
+   * Saldo da conta OpenRouter — usado pelo card "Crédito" da overview do
+   * Jarvis. Retorna o que o /credits da OpenRouter expõe (`total_credits`
+   * = quanto já foi recarregado, `total_usage` = quanto já foi gasto).
+   * Saldo restante é a diferença.
+   */
+  async getCredits(): Promise<{
+    totalCreditsUsd: number;
+    totalUsageUsd: number;
+    remainingUsd: number;
+  }> {
+    const apiKey = this.apiKey;
+    if (!apiKey) {
+      throw new Error('OPENROUTER_API_KEY not configured');
+    }
+    const resp = await fetch('https://openrouter.ai/api/v1/credits', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(
+        `OpenRouter credits ${resp.status}: ${body.slice(0, 300)}`,
+      );
+    }
+    const json: any = await resp.json();
+    const totalCreditsUsd =
+      typeof json?.data?.total_credits === 'number'
+        ? json.data.total_credits
+        : 0;
+    const totalUsageUsd =
+      typeof json?.data?.total_usage === 'number' ? json.data.total_usage : 0;
+    return {
+      totalCreditsUsd,
+      totalUsageUsd,
+      remainingUsd: Math.max(0, totalCreditsUsd - totalUsageUsd),
+    };
   }
 
   async complete(req: LlmCompletionRequest): Promise<LlmCompletionResponse> {

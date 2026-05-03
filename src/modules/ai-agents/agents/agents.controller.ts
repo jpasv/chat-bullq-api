@@ -12,6 +12,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrgRole } from '@prisma/client';
 import { AgentsService } from './agents.service';
+import { LlmService } from '../llm/llm.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { AssignAgentChannelDto } from './dto/assign-channel.dto';
@@ -27,7 +28,29 @@ import {
 @UseGuards(JwtAuthGuard, OrgGuard, RolesGuard)
 @Controller('ai-agents')
 export class AgentsController {
-  constructor(private readonly service: AgentsService) {}
+  constructor(
+    private readonly service: AgentsService,
+    private readonly llm: LlmService,
+  ) {}
+
+  @Get('credits')
+  @ApiOperation({
+    summary:
+      'Saldo OpenRouter (créditos recarregados, gastos e restantes em USD).',
+  })
+  async credits() {
+    try {
+      return await this.llm.getCredits();
+    } catch (err: any) {
+      return {
+        ok: false,
+        error: err?.message ?? 'Falha ao consultar OpenRouter',
+        totalCreditsUsd: 0,
+        totalUsageUsd: 0,
+        remainingUsd: 0,
+      };
+    }
+  }
 
   @Post()
   @Roles(OrgRole.OWNER, OrgRole.ADMIN)
