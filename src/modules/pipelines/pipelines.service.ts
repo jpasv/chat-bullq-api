@@ -217,6 +217,44 @@ export class PipelinesService {
   ) {
     await this.assertPipeline(pipelineId, organizationId);
 
+    // Cards represent conversations entering the pipeline. If the same
+    // conversation is already in this pipeline (any stage), reject — the
+    // operator should move/edit the existing card instead of duplicating.
+    if (dto.conversationId) {
+      const existing = await this.prisma.card.findFirst({
+        where: { pipelineId, conversationId: dto.conversationId },
+        select: { id: true, stageId: true },
+      });
+      if (existing) {
+        throw new BadRequestException(
+          `Essa conversa já está no pipeline (card ${existing.id}). Mova-o em vez de duplicar.`,
+        );
+      }
+    }
+
+    // If conversationId provided, hydrate title/contactId from the conv
+    // so the operator doesn't need to retype the contact name.
+    if (dto.conversationId) {
+      const conv = await this.prisma.conversation.findUnique({
+        where: { id: dto.conversationId },
+        select: {
+          id: true,
+          organizationId: true,
+          contactId: true,
+          contact: { select: { name: true, phone: true } },
+        },
+      });
+      if (!conv || conv.organizationId !== organizationId) {
+        throw new BadRequestException('conversationId inválido');
+      }
+      if (!dto.title?.trim()) {
+        dto.title = conv.contact.name || conv.contact.phone || 'Sem nome';
+      }
+      if (!dto.contactId) {
+        dto.contactId = conv.contactId;
+      }
+    }
+
     // Resolve stage: explicit → use it; else first stage of the pipeline.
     let stageId = dto.stageId;
     if (!stageId) {
@@ -242,12 +280,18 @@ export class PipelinesService {
     });
     const nextOrder = (max?.order ?? -1) + 1;
 
+    if (!dto.title?.trim()) {
+      throw new BadRequestException(
+        'title é obrigatório (ou vincule uma conversationId pra derivar)',
+      );
+    }
+
     const card = await this.prisma.card.create({
       data: {
         organizationId,
         pipelineId,
         stageId,
-        title: dto.title,
+        title: dto.title!,
         description: dto.description,
         value: dto.value as any,
         currency: dto.currency ?? 'BRL',

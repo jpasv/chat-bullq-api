@@ -96,9 +96,12 @@ export class UpdatePipelineDto {
 }
 
 export class CreateCardDto {
+  // Optional: when conversationId is provided the service derives the
+  // title from the contact's name. Required only for "blank" cards.
+  @IsOptional()
   @IsString()
   @Length(1, 200)
-  title!: string;
+  title?: string;
 
   @IsOptional()
   @IsString()
