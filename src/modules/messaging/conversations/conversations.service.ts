@@ -138,6 +138,13 @@ export class ConversationsService {
       await this.repository.update(id, { department: { connect: { id: dto.departmentId } } });
     }
 
+    if (dto.subject !== undefined) {
+      const trimmed = dto.subject.trim();
+      await this.repository.update(id, {
+        subject: trimmed.length > 0 ? trimmed : null,
+      });
+    }
+
     const updated = await this.repository.findById(id);
     this.broadcastUpdate(updated as Conversation | null);
     return updated;
