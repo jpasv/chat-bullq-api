@@ -74,12 +74,45 @@ export class LlmService {
       this.logger.error(
         `LLM call failed [${req.modelId}] status=${status ?? '?'}: ${detail} | tools=[${toolNames ?? ''}]`,
       );
-      // Dump the offending tools schemas at debug level so the next 400 is
-      // easy to triage. Keep it short to avoid log spam.
-      if (status === 400 && tools) {
-        this.logger.debug(
-          `Tools dump: ${JSON.stringify(tools).slice(0, 4000)}`,
+      // Verbose dump on 400: the `detail` string usually says nothing
+      // ("Provider returned error") because OpenRouter wraps the upstream
+      // body. Walk every nested error/body shape we've seen so the next
+      // failure leaves a clear trail in the logs.
+      if (status === 400) {
+        const errorShape = {
+          name: err?.name,
+          message: err?.message,
+          status: err?.status,
+          headers: err?.headers,
+          error: err?.error,
+          responseData: err?.response?.data,
+          body: err?.body,
+          cause: err?.cause,
+        };
+        this.logger.error(
+          `LLM 400 raw err: ${safeStringify(errorShape).slice(0, 4000)}`,
         );
+        if (tools) {
+          this.logger.debug(
+            `Tools dump: ${safeStringify(tools).slice(0, 4000)}`,
+          );
+        }
+        // Sample of the system message (first 600 chars) — useful when 400
+        // is caused by something specific in the prompt.
+        const sysMsg = messages.find((m: any) => m.role === 'system');
+        if (sysMsg) {
+          const sysContent =
+            typeof sysMsg.content === 'string'
+              ? sysMsg.content
+              : Array.isArray(sysMsg.content)
+                ? (sysMsg.content as any[])
+                    .map((p) => p?.text ?? '')
+                    .join('')
+                : '';
+          this.logger.debug(
+            `System sample: ${sysContent.slice(0, 600)}...`,
+          );
+        }
       }
       throw new InternalServerErrorException(
         `LLM provider error (${status ?? 'no-status'}): ${detail}`,
@@ -284,5 +317,25 @@ export class LlmService {
       this.logger.warn(`Tool call had unparseable arguments: ${raw}`);
       return {};
     }
+  }
+}
+
+/**
+ * Stringify with circular-ref protection. Provider error objects often
+ * carry circular `request`/`response` pointers from the OpenAI SDK that
+ * crash a naive JSON.stringify.
+ */
+function safeStringify(input: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(input, (_key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) return '[Circular]';
+        seen.add(value);
+      }
+      return value;
+    });
+  } catch (err) {
+    return `[unstringifyable: ${(err as Error)?.message}]`;
   }
 }
