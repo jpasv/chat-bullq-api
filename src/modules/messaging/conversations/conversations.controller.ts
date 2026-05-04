@@ -53,6 +53,12 @@ export class ConversationsController {
     description:
       'include (default — todas) | exclude (esconde grupos) | only (apenas grupos)',
   })
+  @ApiQuery({
+    name: 'tagIds',
+    required: false,
+    description:
+      'CSV de IDs de tags. OR — devolve conversas que tenham QUALQUER uma das tags (na conversa OU no contato).',
+  })
   findInbox(
     @CurrentOrg('id') orgId: string,
     @CurrentUser('id') userId: string,
@@ -66,6 +72,7 @@ export class ConversationsController {
     @Query('archived') archived?: string,
     @Query('unread') unread?: string,
     @Query('groups') groups?: string,
+    @Query('tagIds') tagIds?: string,
   ) {
     const archivedScope =
       archived === 'only' || archived === 'any' ? archived : 'exclude';
@@ -75,6 +82,10 @@ export class ConversationsController {
     //   include / default → undefined (todas)
     const kind: 'INDIVIDUAL' | 'GROUP' | undefined =
       groups === 'exclude' ? 'INDIVIDUAL' : groups === 'only' ? 'GROUP' : undefined;
+    const parsedTagIds = tagIds
+      ?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     return this.service.findInbox(
       orgId,
       {
@@ -85,6 +96,7 @@ export class ConversationsController {
         archived: archivedScope,
         unreadOnly: unread === 'true' || unread === '1',
         kind,
+        tagIds: parsedTagIds?.length ? parsedTagIds : undefined,
       },
       parseInt(page || '1', 10),
       parseInt(limit || '20', 10),
