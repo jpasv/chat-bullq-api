@@ -1,0 +1,78 @@
+name: Prompt Evals
+
+on:
+  pull_request:
+    paths:
+      - 'src/modules/ai-agents/**'
+      - 'prisma/schema.prisma'
+      - 'prisma/seed.ts'
+      - '.github/workflows/evals.yml'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  evals:
+    name: Run prompt evals against agents
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chat_bullq_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_bullq_test
+      REDIS_HOST: localhost
+      REDIS_PORT: '6379'
+      NODE_ENV: test
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed database
+        run: npx prisma db seed
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run evals
+        run: npm run evals

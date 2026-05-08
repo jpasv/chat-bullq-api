@@ -13,7 +13,10 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "typecheck": "tsc --noEmit",
+    "evals": "ts-node -P tsconfig.json --transpile-only src/modules/ai-agents/evals/cli.ts",
+    "evals:agent": "ts-node -P tsconfig.json --transpile-only src/modules/ai-agents/evals/cli.ts --agent"
   },
   "type": "commonjs",
   "prisma": {
