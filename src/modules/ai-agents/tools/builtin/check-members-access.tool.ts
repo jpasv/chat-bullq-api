@@ -13,7 +13,7 @@ import { AiTool, ToolContext, ToolResult } from '../tool.types';
  * sem essa entrega" (precisa liberar) e "já tem acesso" (cliente só
  * não viu / esqueceu o login).
  *
- * Backend source: Trivapp /api/v1/admin/actions/check-access — server-
+ * Backend source: Trivapp /admin/actions/check-access — server-
  * to-server com x-admin-api-key + x-tenant-id (mesmo pattern dos
  * outros admin-actions).
  *
@@ -84,7 +84,7 @@ export class CheckMembersAccessTool implements AiTool {
 
     try {
       const resp = await axios.post(
-        `${baseUrl}/api/v1/admin/actions/check-access`,
+        `${baseUrl}/admin/actions/check-access`,
         { email, ...(offerSlug ? { offerSlug } : {}) },
         {
           headers: {
