@@ -26,12 +26,14 @@ import { RagIndexerProcessor } from './indexer.processor';
  * Exports the high-level services so the agent runner / prompt composer
  * can call `RetrievalService.retrieve(...)` from Layer 4 CONTEXT.
  */
+const ragIndexerQueue = BullModule.registerQueue({ name: 'rag-indexer' });
+
 @Module({
   imports: [
     ConfigModule,
     PrismaModule,
     LlmModule,
-    BullModule.registerQueue({ name: 'rag-indexer' }),
+    ragIndexerQueue,
   ],
   providers: [
     EmbeddingsService,
@@ -40,6 +42,14 @@ import { RagIndexerProcessor } from './indexer.processor';
     RetrievalService,
     RagIndexerProcessor,
   ],
-  exports: [EmbeddingsService, VectorStoreService, RetrievalService, RerankerService],
+  exports: [
+    EmbeddingsService,
+    VectorStoreService,
+    RetrievalService,
+    RerankerService,
+    // Re-exporta a registração da queue pra que módulos que importam RagModule
+    // (ex: AiAgentsModule) consigam @InjectQueue('rag-indexer').
+    ragIndexerQueue,
+  ],
 })
 export class RagModule {}
