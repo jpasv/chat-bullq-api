@@ -16,12 +16,12 @@ import {
 } from './llm.types';
 
 /**
- * Cliente direto da Anthropic API (substitui OpenRouter).
+ * Cliente da Anthropic API (Claude).
  *
- * - Mantém a interface pública (`complete()`, `LlmMessage`, etc) — o
- *   resto do codebase não precisa mudar.
- * - Aceita modelId no formato `anthropic/claude-sonnet-4-6` (legado do
- *   OpenRouter, ainda no DB) e despe o prefix antes de bater na API.
+ * - Mantém a interface pública (`complete()`, `LlmMessage`, etc).
+ * - Aceita modelId já no formato Anthropic (`claude-sonnet-4-6`) ou com
+ *   prefix `anthropic/` por retrocompat — o prefix é despido antes da
+ *   chamada.
  * - Prompt caching ephemeral nativo: `system` em blocks com cache_control,
  *   tools com cache no último elemento.
  * - Custo calculado client-side (Anthropic não retorna `cost` no response).
@@ -41,19 +41,6 @@ export class LlmService {
       );
     }
     this.client = new Anthropic({ apiKey: apiKey ?? 'missing' });
-  }
-
-  /**
-   * Anthropic não expõe um endpoint público de saldo da conta — só o
-   * dashboard mostra. Mantemos o método pra não quebrar o card "Crédito"
-   * do Jarvis, mas retornamos zeros (UI deve mostrar "—" pra esses).
-   */
-  async getCredits(): Promise<{
-    totalCreditsUsd: number;
-    totalUsageUsd: number;
-    remainingUsd: number;
-  }> {
-    return { totalCreditsUsd: 0, totalUsageUsd: 0, remainingUsd: 0 };
   }
 
   async complete(req: LlmCompletionRequest): Promise<LlmCompletionResponse> {
@@ -96,8 +83,8 @@ export class LlmService {
   // ─── conversão: nossos tipos → Anthropic SDK ─────────────────────
 
   /**
-   * Despe o prefix legado `anthropic/` (resíduo do OpenRouter, ainda no
-   * DB de `ai_agents.model_id`) e retorna o ID exato que a API espera.
+   * Aceita IDs com prefix `anthropic/` por retrocompat (formato antigo) e
+   * retorna o ID exato que a Anthropic API espera.
    */
   private normalizeModelId(id: string): string {
     if (id.startsWith('anthropic/')) return id.slice('anthropic/'.length);
@@ -276,9 +263,8 @@ export class LlmService {
   }
 
   /**
-   * `modelParams` veio do shape OpenRouter (top_p, frequency_penalty,
-   * etc). Passa adiante apenas o que a Anthropic API aceita pra evitar
-   * 400 por campo desconhecido.
+   * Passa adiante apenas os params que a Anthropic API aceita —
+   * evita 400 por campo desconhecido em call sites genéricos.
    */
   private sanitizeModelParams(
     params: Record<string, unknown> | undefined,
@@ -367,9 +353,8 @@ export class LlmService {
   }
 
   /**
-   * Calcula custo USD client-side. Anthropic não retorna `cost` no
-   * response (diferente do OpenRouter), então mantemos uma tabela de
-   * preços por modelo. Cache read/write tem desconto/premium próprios.
+   * Calcula custo USD client-side — Anthropic não retorna `cost` no
+   * response. Tabela de preços por modelo + cache read/write próprios.
    */
   private calculateCost(
     modelId: string,

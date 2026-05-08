@@ -33,7 +33,7 @@ import { IntentRouterService } from './intent-router.service';
 @Injectable()
 export class IntentClassifierService {
   private readonly logger = new Logger(IntentClassifierService.name);
-  private readonly DEFAULT_MODEL = 'anthropic/claude-3.5-haiku';
+  private readonly DEFAULT_MODEL = 'claude-haiku-4-5';
   private readonly DEFAULT_THRESHOLD = 0.85;
 
   // Preço público da Anthropic pra Haiku 3.5 (USD por token).
@@ -74,11 +74,6 @@ export class IntentClassifierService {
         messages,
         temperature: 0,
         maxTokens: 200,
-        // Forçamos JSON mode quando o provider/modelo aceita. Anthropic via
-        // OpenRouter aceita `response_format: { type: 'json_object' }`.
-        modelParams: {
-          response_format: { type: 'json_object' },
-        },
       });
 
       const raw =

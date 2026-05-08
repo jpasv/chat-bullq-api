@@ -57,7 +57,7 @@ export interface ExtractionResult {
   summaryUpdate: string | null;
   /** Free-form explanation from Haiku — useful for debugging/audit. */
   reasoning: string;
-  /** USD cost of the Haiku call (from OpenRouter usage). */
+  /** USD cost of the Haiku call. */
   costUsd: number;
 }
 

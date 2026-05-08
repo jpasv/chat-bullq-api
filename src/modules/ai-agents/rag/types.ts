@@ -79,7 +79,7 @@ export interface RagConfig {
   minScore: number;
   /** Whether to run the Haiku reranker after vector search. */
   rerankEnabled: boolean;
-  /** Model id for the reranker (OpenRouter format). */
+  /** Model id for the reranker (Anthropic format, e.g. `claude-haiku-4-5`). */
   rerankerModel: string;
 }
 

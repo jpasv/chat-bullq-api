@@ -1,7 +1,6 @@
 /**
- * Provider-agnostic LLM types. We talk to every model through OpenRouter
- * using the OpenAI-compatible Chat Completions API, but normalize a few
- * fields here so the rest of the codebase doesn't depend on the SDK shape.
+ * Tipos LLM normalizados — desacoplam o resto do codebase do SDK.
+ * Hoje todos os agents falam com a Anthropic API direto via LlmService.
  */
 
 export type LlmRole = 'system' | 'user' | 'assistant' | 'tool';
@@ -45,7 +44,7 @@ export interface LlmCompletionRequest {
   tools?: LlmToolDefinition[];
   temperature?: number;
   maxTokens?: number;
-  /** OpenRouter-specific overrides (top_p, frequency_penalty, etc). */
+  /** Overrides do provedor (top_p, top_k, stop_sequences, thinking, etc). */
   modelParams?: Record<string, unknown>;
 }
 

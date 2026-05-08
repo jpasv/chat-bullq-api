@@ -4,12 +4,8 @@ import type { EmbeddingResult } from './types';
 
 /**
  * Generates embeddings via the OpenAI Embeddings API (`text-embedding-3-small`,
- * 1536 dims, ~$0.02 per 1M tokens).
- *
- * Why OpenAI direct and not OpenRouter? OpenRouter does NOT proxy the
- * embeddings endpoint — only chat completions. So we hit OpenAI directly
- * with `OPENAI_API_KEY` (falls back to `OPENROUTER_API_KEY` only if the
- * caller has set them to the same value, which is uncommon).
+ * 1536 dims, ~$0.02 per 1M tokens). Anthropic does not provide an embeddings
+ * endpoint, so this is the one place we still depend on OpenAI.
  *
  * The service is stateless: each call is one HTTP request. Batching is
  * supported via `embedBatch` to amortize round-trip latency when indexing
@@ -25,14 +21,10 @@ export class EmbeddingsService {
 
   constructor(config: ConfigService) {
     const apiKey =
-      config.get<string>('OPENAI_API_KEY') ??
-      config.get<string>('OPENROUTER_API_KEY') ??
-      process.env.OPENAI_API_KEY ??
-      process.env.OPENROUTER_API_KEY ??
-      '';
+      config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '';
     if (!apiKey) {
       this.logger.warn(
-        'No OPENAI_API_KEY/OPENROUTER_API_KEY set — embeddings will fail at runtime',
+        'No OPENAI_API_KEY set — embeddings will fail at runtime',
       );
     }
     this.apiKey = apiKey;

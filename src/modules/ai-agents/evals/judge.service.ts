@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
 import { JudgeVerdict } from './types';
 
-const JUDGE_MODEL = 'anthropic/claude-3.5-haiku';
+const JUDGE_MODEL = 'claude-haiku-4-5';
 
 const JUDGE_SYSTEM_PROMPT = `Você é um juiz imparcial que avalia respostas de agents de IA.
 

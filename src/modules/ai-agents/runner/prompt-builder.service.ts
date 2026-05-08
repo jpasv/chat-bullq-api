@@ -451,10 +451,9 @@ export class PromptBuilderService {
 
     // Recent message history → user/assistant turns. We merge consecutive
     // messages from the same author into a single turn — Anthropic models
-    // (and OpenRouter when proxying to them) reject conversations with two
-    // adjacent turns of the same role with a 400 "messages: roles must
-    // alternate". Customers regularly send 2-3 messages in a row, so this
-    // merge is load-bearing.
+    // reject conversations with two adjacent turns of the same role with a
+    // 400 "messages: roles must alternate". Customers regularly send 2-3
+    // messages in a row, so this merge is load-bearing.
     for (const m of ctx.recentMessages) {
       const text = this.extractText(m);
       if (!text) continue;

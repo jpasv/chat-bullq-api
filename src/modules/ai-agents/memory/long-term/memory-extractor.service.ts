@@ -8,7 +8,7 @@ import {
 } from './long-term.types';
 
 /**
- * Memory extractor — uses Claude Haiku via OpenRouter to read the recent
+ * Memory extractor — uses Claude Haiku to read the recent
  * conversation + the current memory and emit:
  *   - `newFacts`: facts that aren't already known
  *   - `factsToRemove`: facts that became stale or contradicted
@@ -22,7 +22,7 @@ import {
 @Injectable()
 export class MemoryExtractorService {
   private readonly logger = new Logger(MemoryExtractorService.name);
-  private readonly modelId = 'anthropic/claude-3.5-haiku';
+  private readonly modelId = 'claude-haiku-4-5';
 
   constructor(private readonly llm: LlmService) {}
 
@@ -40,12 +40,6 @@ export class MemoryExtractorService {
         ],
         maxTokens: 1000,
         temperature: 0.2,
-        // OpenRouter passes through `response_format` to Anthropic-compatible
-        // providers — when supported, it forces JSON output. When not, we
-        // fall back to tolerant parsing below.
-        modelParams: {
-          response_format: { type: 'json_object' },
-        },
       });
     } catch (err) {
       this.logger.error(
