@@ -107,7 +107,13 @@ export class RealtimeGateway
       });
 
       this.logger.log(`Client connected: ${client.data.userId} (org: ${orgId})`);
-    } catch {
+    } catch (err: any) {
+      // Token expirado é o caso comum aqui. Avisa o client antes de derrubar:
+      // um disconnect server-side ("io server disconnect") não dispara
+      // reconexão automática no socket.io-client, então o front precisa
+      // saber que deve renovar o token e reconectar por conta própria.
+      this.logger.warn(`Socket auth failed: ${err?.message ?? err}`);
+      client.emit('auth:error', { reason: 'invalid-token' });
       client.disconnect();
     }
   }

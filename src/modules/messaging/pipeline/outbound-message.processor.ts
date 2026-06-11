@@ -132,6 +132,14 @@ export class OutboundMessageProcessor extends WorkerHost {
         message: updated,
         conversationId: updated.conversationId,
       });
+      // Também pra room da conversa: quem está com o chat aberto entra em
+      // conv:<id>, não necessariamente em channel:<id>. No echo de mídia o
+      // id da mensagem pode ter trocado (placeholder deletado), então o
+      // message:status sozinho não basta — o front precisa do objeto inteiro.
+      this.realtimeGateway.emitToConversation(updated.conversationId, 'message:new', {
+        message: updated,
+        conversationId: updated.conversationId,
+      });
       this.logger.log(
         `Outbound sent: msg=${updated.id} externalId=${result.externalId}`,
       );
