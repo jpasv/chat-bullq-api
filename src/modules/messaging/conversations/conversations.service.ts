@@ -67,6 +67,7 @@ export class ConversationsService {
       archived?: 'exclude' | 'only' | 'any';
       unreadOnly?: boolean;
       stuckOnly?: boolean;
+      segmentId?: string;
     },
     page: number,
     limit: number,
@@ -93,6 +94,7 @@ export class ConversationsService {
       archived: filters.archived,
       unreadOnly: filters.unreadOnly,
       stuckOnly: filters.stuckOnly,
+      segmentId: filters.segmentId,
     };
 
     const skip = (page - 1) * limit;
