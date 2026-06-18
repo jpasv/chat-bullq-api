@@ -31,17 +31,18 @@ export class ConversationResolverService {
     channelId: string,
     contactId: string,
     isGroup?: boolean,
+    segmentId?: string,
   ): Promise<ResolvedConversation> {
     // Fast path without lock — most webhooks hit an already-open conversation.
     const fast = await this.findOpen(organizationId, channelId, contactId);
-    if (fast) return this.touchOpen(fast, isGroup);
+    if (fast) return this.touchOpen(fast, isGroup, segmentId);
 
     // Need to create or reopen — serialise to prevent duplicate conversations.
     return this.idempotency.withLock(
       `conv:${channelId}:${contactId}`,
       async () => {
         const existing = await this.findOpen(organizationId, channelId, contactId);
-        if (existing) return this.touchOpen(existing, isGroup);
+        if (existing) return this.touchOpen(existing, isGroup, segmentId);
 
         const lastClosed = await this.prisma.conversation.findFirst({
           where: {
@@ -63,6 +64,7 @@ export class ConversationResolverService {
                 status: ConversationStatus.PENDING,
                 closedAt: null,
                 assignedToId: null,
+                ...(segmentId && !lastClosed.segmentId ? { segmentId } : {}),
               },
             });
             await this.prisma.conversationAuditLog.create({
@@ -93,6 +95,7 @@ export class ConversationResolverService {
             status: ConversationStatus.PENDING,
             protocol,
             isGroup: isGroup || false,
+            segmentId: segmentId ?? null,
           },
         });
         await this.prisma.conversationAuditLog.create({
@@ -136,13 +139,20 @@ export class ConversationResolverService {
       id: string;
       status: ConversationStatus;
       isGroup: boolean;
+      segmentId?: string | null;
     },
     isGroup?: boolean,
+    segmentId?: string,
   ): Promise<ResolvedConversation> {
-    if (isGroup && !openConversation.isGroup) {
+    const patch: Record<string, any> = {};
+    if (isGroup && !openConversation.isGroup) patch.isGroup = true;
+    // Backfill: conversa de grupo pré-existente que agora pertence a um
+    // segmento (membros adicionados depois). Ancora sem duplicar a conversa.
+    if (segmentId && !openConversation.segmentId) patch.segmentId = segmentId;
+    if (Object.keys(patch).length > 0) {
       await this.prisma.conversation.update({
         where: { id: openConversation.id },
-        data: { isGroup: true },
+        data: patch,
       });
     }
 

@@ -12,6 +12,7 @@ import {
   NormalizedHistoricalMessage,
 } from '../../channel-hub/ports/types';
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
+import { SegmentLookupService } from '../../segments/segment-lookup.service';
 
 export interface ConversationImportResult {
   conversationId: string;
@@ -31,18 +32,36 @@ export class HistoryImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeGateway: RealtimeGateway,
+    private readonly segmentLookup: SegmentLookupService,
   ) {}
 
   async importConversation(
     channel: Channel,
     normalized: NormalizedHistoricalConversation,
   ): Promise<ConversationImportResult> {
-    const contactId = await this.upsertContact(channel, normalized);
+    // Segmentos: ao importar o histórico de um canal MEMBRO, a conversa de
+    // grupo é ancorada no canal PRINCIPAL — senão cada número criaria uma
+    // cópia separada do mesmo grupo, divergindo do pipeline ao vivo.
+    let effectiveChannelId = channel.id;
+    let segmentId: string | undefined;
+    if (normalized.isGroup) {
+      const routing = await this.segmentLookup.forChannel(channel.id);
+      if (routing) {
+        effectiveChannelId = routing.primaryChannelId;
+        segmentId = routing.segmentId;
+      }
+    }
+
+    const contactId = await this.upsertContact(
+      channel.organizationId,
+      effectiveChannelId,
+      normalized,
+    );
 
     const existing = await this.prisma.conversation.findFirst({
       where: {
         organizationId: channel.organizationId,
-        channelId: channel.id,
+        channelId: effectiveChannelId,
         contactId,
         status: {
           in: [
@@ -56,10 +75,15 @@ export class HistoryImportService {
     });
 
     if (existing) {
+      const patch: Record<string, any> = {};
       if (normalized.lastMessageAt && (!existing.lastMessageAt || normalized.lastMessageAt > existing.lastMessageAt)) {
+        patch.lastMessageAt = normalized.lastMessageAt;
+      }
+      if (segmentId && !existing.segmentId) patch.segmentId = segmentId;
+      if (Object.keys(patch).length > 0) {
         await this.prisma.conversation.update({
           where: { id: existing.id },
-          data: { lastMessageAt: normalized.lastMessageAt },
+          data: patch,
         });
       }
       return { conversationId: existing.id, contactId, isNew: false };
@@ -69,8 +93,9 @@ export class HistoryImportService {
     const conversation = await this.prisma.conversation.create({
       data: {
         organizationId: channel.organizationId,
-        channelId: channel.id,
+        channelId: effectiveChannelId,
         contactId,
+        segmentId: segmentId ?? null,
         status:
           (normalized.unreadCount ?? 0) > 0
             ? ConversationStatus.PENDING
@@ -174,13 +199,14 @@ export class HistoryImportService {
   }
 
   private async upsertContact(
-    channel: Channel,
+    organizationId: string,
+    channelId: string,
     normalized: NormalizedHistoricalConversation,
   ): Promise<string> {
     const existing = await this.prisma.contactChannel.findUnique({
       where: {
         uq_contact_channel_external: {
-          channelId: channel.id,
+          channelId,
           externalId: normalized.externalContactId,
         },
       },
@@ -209,13 +235,13 @@ export class HistoryImportService {
 
     const contact = await this.prisma.contact.create({
       data: {
-        organizationId: channel.organizationId,
+        organizationId,
         name: normalized.contactName,
         phone: normalized.contactPhone,
         avatarUrl: normalized.contactAvatarUrl,
         channels: {
           create: {
-            channelId: channel.id,
+            channelId,
             externalId: normalized.externalContactId,
             profileName: normalized.contactName,
             profileAvatarUrl: normalized.contactAvatarUrl,

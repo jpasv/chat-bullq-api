@@ -46,6 +46,10 @@ export class ZappfyMessageMapper {
       senderName: isGroup
         ? (msg.senderName?.trim() || msg.pushName?.trim() || msg.sender_pn?.replace(/@.+/, '') || undefined)
         : (isEcho ? (msg.senderName?.trim() || msg.pushName?.trim() || undefined) : undefined),
+      // Participante real (grupos): usado por Segmentos pra classificar direção.
+      senderPhone: isGroup
+        ? (msg.sender_pn || msg.participant || msg.author || undefined)
+        : undefined,
       rawPayload: event,
     };
 

@@ -77,6 +77,13 @@ export interface NormalizedInboundMessage {
   isGroup?: boolean;
   isEcho?: boolean;
   senderName?: string;
+  /**
+   * Telefone/JID do PARTICIPANTE real que enviou (apenas grupos). Usado por
+   * Segmentos para classificar direção: se o participante é um número nosso
+   * (membro do segmento), a cópia da mensagem é OUTBOUND mesmo chegando como
+   * fromMe=false por outra instância membro.
+   */
+  senderPhone?: string;
   rawPayload: unknown;
 }
 

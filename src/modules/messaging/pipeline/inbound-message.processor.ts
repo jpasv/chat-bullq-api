@@ -16,6 +16,10 @@ import { TranscriptionService } from '../messages/transcription.service';
 import { OutboxService } from '../../automations/outbox/outbox.service';
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
 import {
+  SegmentLookupService,
+  normalizePhone,
+} from '../../segments/segment-lookup.service';
+import {
   AutomationTrigger,
   ChannelType,
   MessageDirection,
@@ -96,6 +100,7 @@ export class InboundMessageProcessor extends WorkerHost {
     private readonly transcription: TranscriptionService,
     private readonly outbox: OutboxService,
     private readonly watchdog: WatchdogService,
+    private readonly segmentLookup: SegmentLookupService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
   ) {
     super();
@@ -109,11 +114,36 @@ export class InboundMessageProcessor extends WorkerHost {
     const { channelId, organizationId, message, webhookEventId } =
       job.data as InboundJobData;
 
+    // ─── Segmentos ───────────────────────────────────────────────────────
+    // Se este canal é membro de um segmento ativo e a mensagem é de grupo,
+    // a conversa do grupo é COMPARTILHADA e ancorada no canal principal.
+    // `effectiveChannelId` passa a valer para contato/conversa/realtime/bot;
+    // `dedupChannelId` deduplica as N cópias que chegam (uma por membro)
+    // — todos os membros compartilham o mesmo `messageid` do WhatsApp.
+    const routing = message.isGroup
+      ? await this.segmentLookup.forChannel(channelId)
+      : null;
+    const effectiveChannelId = routing?.primaryChannelId ?? channelId;
+    const dedupChannelId = routing ? effectiveChannelId : channelId;
+
+    // Captura o número próprio DESTE canal (membro) a partir do `owner` do
+    // payload — alimenta o `ownNumbers` usado pra classificar direção. Só
+    // para membros de segmento; é onde a direção importa e evita um read
+    // extra por mensagem em grupos comuns.
+    if (routing) {
+      const owner = (message.rawPayload as any)?.owner;
+      this.segmentLookup
+        .captureOwnNumber(channelId, owner)
+        .catch(() => undefined);
+    }
+
     try {
-      // Atomic duplicate check: only the first worker proceeds.
+      // Atomic duplicate check: only the first worker proceeds. Para grupos
+      // em segmento o claim usa o canal principal, então só a PRIMEIRA cópia
+      // (qualquer membro) processa — as demais caem como duplicate_claim.
       const claimed = await this.idempotency.claimProcessing(
         message.externalMessageId,
-        channelId,
+        dedupChannelId,
       );
       if (!claimed) {
         this.logger.debug(
@@ -124,7 +154,11 @@ export class InboundMessageProcessor extends WorkerHost {
       }
 
       const { contactId, isNew: isNewContact } =
-        await this.contactResolver.resolve(organizationId, channelId, message);
+        await this.contactResolver.resolve(
+          organizationId,
+          effectiveChannelId,
+          message,
+        );
 
       if (message.channelType === ChannelType.INSTAGRAM) {
         const [channel, contact] = await Promise.all([
@@ -171,13 +205,23 @@ export class InboundMessageProcessor extends WorkerHost {
 
       const { conversationId, status } = await this.conversationResolver.resolve(
         organizationId,
-        channelId,
+        effectiveChannelId,
         contactId,
         message.isGroup,
+        routing?.segmentId,
       );
 
       const isEcho = !!message.isEcho;
-      const direction = isEcho
+      // Direção: echo é sempre OUTBOUND. Em grupo de segmento, uma cópia que
+      // chega como fromMe=false mas cujo PARTICIPANTE é um número nosso
+      // (outro membro enviou) também é OUTBOUND — senão a própria resposta da
+      // equipe apareceria como mensagem do cliente.
+      const sentByOwnNumber =
+        !!routing &&
+        !isEcho &&
+        routing.ownNumbers.has(normalizePhone(message.senderPhone));
+      const isOutbound = isEcho || sentByOwnNumber;
+      const direction = isOutbound
         ? MessageDirection.OUTBOUND
         : MessageDirection.INBOUND;
 
@@ -193,7 +237,7 @@ export class InboundMessageProcessor extends WorkerHost {
             conversationId,
             message,
             direction,
-            isEcho,
+            isOutbound,
           );
           await tx.conversation.update({
             where: { id: conversationId },
@@ -223,7 +267,7 @@ export class InboundMessageProcessor extends WorkerHost {
                 organizationId,
                 contactId,
                 conversationId,
-                channelId,
+                channelId: effectiveChannelId,
                 messageId: result.message.id,
                 body,
                 type: String(message.type),
@@ -236,7 +280,7 @@ export class InboundMessageProcessor extends WorkerHost {
         },
       );
 
-      this.realtimeGateway.emitToChannel(channelId, 'message:new', {
+      this.realtimeGateway.emitToChannel(effectiveChannelId, 'message:new', {
         message: savedMessage,
         conversationId,
         contactId,
@@ -246,11 +290,11 @@ export class InboundMessageProcessor extends WorkerHost {
       });
 
       if (
-        !isEcho &&
+        !isOutbound &&
         (status === ConversationStatus.BOT ||
           status === ConversationStatus.PENDING)
       ) {
-        const hasActiveBot = await this.checkActiveBotForChannel(channelId);
+        const hasActiveBot = await this.checkActiveBotForChannel(effectiveChannelId);
         if (hasActiveBot) {
           if (status === ConversationStatus.PENDING) {
             await this.prisma.conversation.update({
@@ -262,7 +306,7 @@ export class InboundMessageProcessor extends WorkerHost {
             'process-bot',
             {
               conversationId,
-              channelId,
+              channelId: effectiveChannelId,
               contactExternalId: message.externalContactId,
               organizationId,
               messageText: (message.content as any)?.text || '',
@@ -286,15 +330,15 @@ export class InboundMessageProcessor extends WorkerHost {
       // Watchdog: cliente mandou mensagem nova → agenda timer pra detectar
       // se ninguém respondeu na janela. Echo (msg da gente que voltou via
       // webhook) não conta — essas vão pelo path OUTBOUND e cancelam.
-      if (!isEcho && direction === MessageDirection.INBOUND) {
+      if (!isOutbound && direction === MessageDirection.INBOUND) {
         this.watchdog.scheduleCheck(conversationId).catch((err) =>
           this.logger.warn(
             `Watchdog scheduleCheck failed for conv ${conversationId}: ${err?.message ?? err}`,
           ),
         );
-      } else if (isEcho) {
-        // Echo de msg nossa que finalmente voltou — cancela timer existente
-        // (pode ter sido enviada por outro path que não passou pelo cancel).
+      } else if (isOutbound) {
+        // Saída nossa que finalmente voltou (echo ou cópia enviada por outro
+        // número membro do segmento) — cancela timer existente.
         this.watchdog.cancelCheck(conversationId).catch(() => undefined);
       }
 
@@ -306,7 +350,7 @@ export class InboundMessageProcessor extends WorkerHost {
       // instead of seeing "[audio]" and apologizing it can't listen. Cost
       // is ~$0.006/min — predictable and pays for itself the moment the
       // bot answers a single audio without bouncing the customer to text.
-      if (!isEcho) {
+      if (!isOutbound) {
         const dispatch = async () => {
           if (savedMessage.type === PrismaContentType.AUDIO) {
             try {
@@ -342,7 +386,7 @@ export class InboundMessageProcessor extends WorkerHost {
       }
       // Release the claim so retries can try again — next attempt re-acquires.
       await this.idempotency
-        .markProcessed(message.externalMessageId, channelId)
+        .markProcessed(message.externalMessageId, dedupChannelId)
         .catch(() => undefined);
       throw err;
     }
@@ -403,6 +447,9 @@ export class InboundMessageProcessor extends WorkerHost {
           content: message.content as any,
           externalId: message.externalMessageId || null,
           status: isEcho ? MessageStatus.SENT : MessageStatus.DELIVERED,
+          // Timestamp do provedor — ordena corretamente as cópias de grupo
+          // que chegam fora de ordem por instâncias membros diferentes.
+          providerTimestamp: message.timestamp ?? null,
           senderName: message.senderName || null,
           sentAt: isEcho ? new Date() : null,
           deliveredAt: isEcho ? null : new Date(),

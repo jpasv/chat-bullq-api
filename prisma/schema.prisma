@@ -137,22 +137,22 @@ model Organization {
   deletedAt DateTime? @map("deleted_at")
 
   // ─── AI settings ────────────────────────────────
-  aiEnabled            Boolean @default(true) @map("ai_enabled")
-  aiTimezone           String  @default("America/Sao_Paulo") @map("ai_timezone")
-  aiBusinessHours      Json?   @map("ai_business_hours")
-  aiOutOfHoursMessage  String? @map("ai_out_of_hours_message")
-  aiAutoDisableOnHuman Boolean @default(true) @map("ai_auto_disable_on_human")
-  aiMonthlyTokenCap    Int?    @map("ai_monthly_token_cap")
+  aiEnabled             Boolean  @default(true) @map("ai_enabled")
+  aiTimezone            String   @default("America/Sao_Paulo") @map("ai_timezone")
+  aiBusinessHours       Json?    @map("ai_business_hours")
+  aiOutOfHoursMessage   String?  @map("ai_out_of_hours_message")
+  aiAutoDisableOnHuman  Boolean  @default(true) @map("ai_auto_disable_on_human")
+  aiMonthlyTokenCap     Int?     @map("ai_monthly_token_cap")
   /// Notas livres do negócio injetadas no system prompt de TODOS os
   /// agentes da org. Use pra info que muda com frequência e que vale
   /// pra qualquer fluxo (vendas/suporte/CS): regras de entrega, horários
   /// de live, política de reembolso, talking points atuais, etc.
-  aiBusinessNotes      String? @map("ai_business_notes") @db.Text
+  aiBusinessNotes       String?  @map("ai_business_notes") @db.Text
   /// Regras de segurança (imutáveis) injetadas na Layer 1 do prompt composer.
   /// Shape: { noPriceCommitment, noDeadlineCommitment, noResultPromise,
   /// noCrossClientDataLeak, forbiddenEmojis: string[], language: 'pt-BR'|'en-US',
   /// customRules: string[] }. NULL = usa defaults do código.
-  aiSecurityRules      Json?   @map("ai_security_rules")
+  aiSecurityRules       Json?    @map("ai_security_rules")
   /// Threshold de confiança do IntentClassifier pra pular o orchestrator.
   /// Default 0.85. Abaixo disso cai no Augusto.
   aiClassifierThreshold Decimal? @default(0.85) @map("ai_classifier_threshold") @db.Decimal(3, 2)
@@ -162,7 +162,7 @@ model Organization {
   /// "trivapp.com.br"), o runtime guard rejeita qualquer URL fora da
   /// lista — IA tem que reescrever sem o link inventado. NULL ou
   /// array vazio = permissivo (só loga warning, não bloqueia).
-  allowedUrlDomains    Json?   @map("allowed_url_domains")
+  allowedUrlDomains Json? @map("allowed_url_domains")
 
   // ─── Watchdog (conversas presas) ────────────────
   /// Liga/desliga o watchdog que detecta conversas onde a IA travou ou
@@ -195,6 +195,7 @@ model Organization {
   pipelines     Pipeline[]
   cards         Card[]
   products      Product[]
+  segments      Segment[]
 
   @@map("organizations")
 }
@@ -251,32 +252,74 @@ model Invitation {
 // ─── Channel Hub ─────────────────────────────────
 
 model Channel {
-  id             String      @id @default(cuid())
-  organizationId String      @map("organization_id")
+  id             String            @id @default(cuid())
+  organizationId String            @map("organization_id")
   type           ChannelType
   name           String
   config         Json
-  webhookSecret  String?     @map("webhook_secret")
-  isActive       Boolean     @default(true) @map("is_active")
+  webhookSecret  String?           @map("webhook_secret")
+  isActive       Boolean           @default(true) @map("is_active")
   visibility     ChannelVisibility @default(ORG)
   // Tri-state override: NULL=segue org.aiEnabled, true=força ON, false=força OFF.
   // Permite o operador desligar a IA num canal específico (ex: 1581 produção)
   // sem precisar mexer no toggle global da org.
-  aiEnabled      Boolean?    @map("ai_enabled")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
-  deletedAt      DateTime?   @map("deleted_at")
+  aiEnabled      Boolean?          @map("ai_enabled")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  deletedAt      DateTime?         @map("deleted_at")
 
-  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contactChannels ContactChannel[]
-  conversations   Conversation[]
-  chatbotFlows    ChatbotFlowChannel[]
-  syncJobs        ChannelSyncJob[]
-  channelAgents   ChannelAgent[]
-  aiAgentChannels AiAgentChannel[]
+  organization       Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contactChannels    ContactChannel[]
+  conversations      Conversation[]
+  chatbotFlows       ChatbotFlowChannel[]
+  syncJobs           ChannelSyncJob[]
+  channelAgents      ChannelAgent[]
+  aiAgentChannels    AiAgentChannel[]
+  segmentMemberships SegmentChannel[]
+  primaryOfSegments  Segment[]            @relation("SegmentPrimaryChannel")
 
   @@index([organizationId, type], name: "idx_channel_org_type")
   @@map("channels")
+}
+
+// ─── Segments (grupos compartilhados entre vários canais) ─────────
+//
+// Um Segmento agrupa N canais (instâncias) que dividem os MESMOS grupos
+// de WhatsApp. As conversas de GRUPO desses canais são afuniladas para o
+// canal principal (`primaryChannelId`): a conversa mantém channelId = principal,
+// mas é localizada por (segmentId, group_JID) para deduplicar entre os membros.
+// Conversas individuais (privadas) NÃO são afetadas — continuam por canal.
+model Segment {
+  id               String    @id @default(cuid())
+  organizationId   String    @map("organization_id")
+  name             String
+  primaryChannelId String?   @map("primary_channel_id")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  primaryChannel Channel?         @relation("SegmentPrimaryChannel", fields: [primaryChannelId], references: [id], onDelete: SetNull)
+  members        SegmentChannel[]
+  conversations  Conversation[]
+
+  @@index([organizationId], name: "idx_segment_org")
+  @@map("segments")
+}
+
+model SegmentChannel {
+  id        String   @id @default(cuid())
+  segmentId String   @map("segment_id")
+  channelId String   @map("channel_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  segment Segment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([segmentId, channelId], name: "uq_segment_channel")
+  @@index([channelId], name: "idx_segment_channel_channel")
+  @@map("segment_channels")
 }
 
 model ChannelAgent {
@@ -409,6 +452,11 @@ model Conversation {
   id              String             @id @default(cuid())
   organizationId  String             @map("organization_id")
   channelId       String             @map("channel_id")
+  // Quando setado, a conversa pertence a um Segmento (apenas grupos).
+  // channelId continua sendo o canal PRINCIPAL do segmento (usado p/ envio,
+  // RBAC, realtime). segmentId serve para localizar/deduplicar a conversa de
+  // grupo entre os vários canais membros via (segmentId, group_JID).
+  segmentId       String?            @map("segment_id")
   contactId       String             @map("contact_id")
   assignedToId    String?            @map("assigned_to_id")
   departmentId    String?            @map("department_id")
@@ -427,12 +475,12 @@ model Conversation {
   // Orthogonal to `status` — archived conversations are hidden from the
   // main inbox but their status (OPEN/PENDING/etc.) is preserved so they
   // re-appear in the right place when unarchived.
-  isArchived     Boolean   @default(false) @map("is_archived")
-  archivedAt     DateTime? @map("archived_at")
-  archivedById   String?   @map("archived_by_id")
-  metadata        Json               @default("{}")
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
+  isArchived   Boolean   @default(false) @map("is_archived")
+  archivedAt   DateTime? @map("archived_at")
+  archivedById String?   @map("archived_by_id")
+  metadata     Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // ─── AI state (tri-state override) ──────────────
   // null  = segue regras globais (org.aiEnabled, business hours, agent)
@@ -447,38 +495,40 @@ model Conversation {
   /// Tentativas de reativação. Cada vez que o watchdog reaciona a IA na
   /// conversa, +1. Resetado pra 0 quando IA/humano responde com sucesso.
   /// Quando atinge `maxAttempts`, a conversa é marcada `isStuck=true`.
-  stuckAttempts        Int       @default(0) @map("stuck_attempts")
+  stuckAttempts       Int       @default(0) @map("stuck_attempts")
   /// Última vez que o watchdog avaliou a conversa.
-  lastWatchdogCheckAt  DateTime? @map("last_watchdog_check_at")
+  lastWatchdogCheckAt DateTime? @map("last_watchdog_check_at")
   /// ID do job reativo (BullMQ) atualmente agendado pra essa conversa.
   /// Permite cancelar/substituir o job quando algo muda na conversa.
-  watchdogJobId        String?   @map("watchdog_job_id")
+  watchdogJobId       String?   @map("watchdog_job_id")
   /// Bandeira "presa pra valer". Setada quando `stuckAttempts >= maxAttempts`.
   /// Frontend filtra por isso na inbox e no dashboard.
-  isStuck              Boolean   @default(false) @map("is_stuck")
+  isStuck             Boolean   @default(false) @map("is_stuck")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channel      Channel      @relation(fields: [channelId], references: [id])
+  segment      Segment?     @relation(fields: [segmentId], references: [id], onDelete: SetNull)
   contact      Contact      @relation(fields: [contactId], references: [id])
   assignedTo   User?        @relation("AssignedAgent", fields: [assignedToId], references: [id], onDelete: SetNull)
   department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   activeAgent  AiAgent?     @relation("ActiveAgent", fields: [activeAgentId], references: [id], onDelete: SetNull)
 
-  messages      Message[]
-  tags          ConversationTag[]
-  internalNotes InternalNote[]
-  auditLogs     ConversationAuditLog[]
-  rating        ConversationRating?
+  messages         Message[]
+  tags             ConversationTag[]
+  internalNotes    InternalNote[]
+  auditLogs        ConversationAuditLog[]
+  rating           ConversationRating?
   aiRuns           AiAgentRun[]
   aiHandoffs       AiAgentHandoff[]
   aiPendingActions AiPendingAction[]
-  reads         ConversationRead[]
-  cards         Card[]                 @relation("CardConversation")
+  reads            ConversationRead[]
+  cards            Card[]                 @relation("CardConversation")
 
   @@index([organizationId, status], name: "idx_conv_org_status")
   @@index([organizationId, assignedToId], name: "idx_conv_org_agent")
   @@index([organizationId, channelId], name: "idx_conv_org_channel")
   @@index([organizationId, isArchived], name: "idx_conv_org_archived")
+  @@index([segmentId, contactId], name: "idx_conv_segment_contact")
   @@index([contactId], name: "idx_conv_contact")
   @@index([lastMessageAt], name: "idx_conv_last_msg")
   @@map("conversations")
@@ -535,41 +585,46 @@ model InternalNote {
 // ─── Messages ────────────────────────────────────
 
 model Message {
-  id             String             @id @default(cuid())
-  conversationId String             @map("conversation_id")
-  direction      MessageDirection
-  type           MessageContentType
-  content        Json
-  externalId     String?            @map("external_id")
-  status         MessageStatus      @default(QUEUED)
-  senderName     String?            @map("sender_name")
-  senderId       String?            @map("sender_id")
-  sentAt         DateTime?          @map("sent_at")
-  deliveredAt    DateTime?          @map("delivered_at")
-  readAt         DateTime?          @map("read_at")
-  failedReason   String?            @map("failed_reason")
-  metadata       Json               @default("{}")
-  createdAt      DateTime           @default(now()) @map("created_at")
+  id                String             @id @default(cuid())
+  conversationId    String             @map("conversation_id")
+  direction         MessageDirection
+  type              MessageContentType
+  content           Json
+  externalId        String?            @map("external_id")
+  status            MessageStatus      @default(QUEUED)
+  senderName        String?            @map("sender_name")
+  senderId          String?            @map("sender_id")
+  // Timestamp REAL do evento no provider (WhatsApp), não a hora de inserção.
+  // Usado para ordenar a timeline de forma determinística quando a mesma
+  // mensagem de grupo chega por vários canais com latências diferentes.
+  providerTimestamp DateTime?          @map("provider_timestamp")
+  sentAt            DateTime?          @map("sent_at")
+  deliveredAt       DateTime?          @map("delivered_at")
+  readAt            DateTime?          @map("read_at")
+  failedReason      String?            @map("failed_reason")
+  metadata          Json               @default("{}")
+  createdAt         DateTime           @default(now()) @map("created_at")
 
   // ─── Revoke state (delete for everyone) ─────────
   /// Quando setado, a mensagem foi marcada como deletada. UI renderiza
   /// placeholder em vez do conteúdo. Não removemos a row pra preservar
   /// auditoria + histórico (audit-log mantém o conteúdo original).
-  revokedAt              DateTime? @map("revoked_at")
-  revokedBy              String?   @map("revoked_by")
+  revokedAt             DateTime? @map("revoked_at")
+  revokedBy             String?   @map("revoked_by")
   /// Se conseguimos propagar o delete pro provider (Zappfy/Meta).
   /// - true  = chamada na API do provider funcionou (some no app do cliente)
   /// - false = provider não suportou ou erro (mensagem ficou no app do cliente,
   ///           só sumiu no nosso inbox)
   /// - null  = ainda não foi revogada
-  revokeSucceededRemote  Boolean?  @map("revoke_succeeded_remote")
-  revoker                User?     @relation("MessageRevoker", fields: [revokedBy], references: [id], onDelete: SetNull)
+  revokeSucceededRemote Boolean?  @map("revoke_succeeded_remote")
+  revoker               User?     @relation("MessageRevoker", fields: [revokedBy], references: [id], onDelete: SetNull)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User?        @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
 
   @@unique([conversationId, externalId], name: "uq_msg_conv_external")
   @@index([conversationId, createdAt], name: "idx_msg_conv_time")
+  @@index([conversationId, providerTimestamp], name: "idx_msg_conv_provider_ts")
   @@index([externalId], name: "idx_msg_external_id")
   @@map("messages")
 }
@@ -849,19 +904,19 @@ model AiAgent {
   department    String?
   squad         String?
 
-  modelId      String @map("model_id")
-  modelParams  Json?  @map("model_params")
-  systemPrompt String @map("system_prompt")
+  modelId                     String    @map("model_id")
+  modelParams                 Json?     @map("model_params")
+  systemPrompt                String    @map("system_prompt")
   // Contexto vivo da operação — atualizado quase diariamente pelo
   // operador. Ex: "Hoje teve aula sobre Skills. Ofereça Dominando
   // Claude Code R$ 1.497 (link X) pra quem responder feedback positivo."
   // Injetado no system prompt em todo run, marcado como cache_control
   // ephemeral pra não inflar token cost — quando o JP edita, o cache
   // é invalidado naturalmente pela mudança de hash.
-  operationalContext String?   @map("operational_context")
+  operationalContext          String?   @map("operational_context")
   operationalContextUpdatedAt DateTime? @map("operational_context_updated_at")
-  temperature  Float  @default(0.7)
-  maxTokens    Int    @default(2048) @map("max_tokens")
+  temperature                 Float     @default(0.7)
+  maxTokens                   Int       @default(2048) @map("max_tokens")
 
   canRespondDirectly Boolean @default(true) @map("can_respond_directly")
   isActive           Boolean @default(true) @map("is_active")
@@ -880,14 +935,14 @@ model AiAgent {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  channels     AiAgentChannel[]
+  channels       AiAgentChannel[]
   memories       AiAgentMemory[]
   runs           AiAgentRun[]
   handoffsFrom   AiAgentHandoff[]  @relation("HandoffFrom")
   handoffsTo     AiAgentHandoff[]  @relation("HandoffTo")
   pendingActions AiPendingAction[]
-  activeOn     Conversation[]   @relation("ActiveAgent")
-  skills       AiAgentSkill[]
+  activeOn       Conversation[]    @relation("ActiveAgent")
+  skills         AiAgentSkill[]
 
   @@index([organizationId], name: "idx_ai_agent_org")
   @@index([organizationId, kind], name: "idx_ai_agent_org_kind")
@@ -1109,10 +1164,10 @@ model AiAgentRun {
   startedAt  DateTime  @default(now()) @map("started_at")
   finishedAt DateTime? @map("finished_at")
 
-  conversation    Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  agent           AiAgent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  toolCalls       AiToolCall[]
-  pendingActions  AiPendingAction[]
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agent          AiAgent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  toolCalls      AiToolCall[]
+  pendingActions AiPendingAction[]
 
   @@index([organizationId, startedAt], name: "idx_ai_run_org_time")
   @@index([conversationId], name: "idx_ai_run_conv")
@@ -1492,17 +1547,17 @@ model Automation {
 
   // schemaVersion: bumped when conditions/actions JSON shape changes.
   // Workers refuse to run automations with unknown schemaVersion.
-  schemaVersion  Int               @default(1) @map("schema_version")
+  schemaVersion Int @default(1) @map("schema_version")
 
   // Estado operacional
-  enabled        Boolean           @default(false)
+  enabled  Boolean @default(false)
   // actorId: snapshot do criador. Se este user perder permissão / sair do
   // workspace, o run é bloqueado e a automation pausada.
-  actorId        String            @map("actor_id")
-  priority       Int               @default(0)
+  actorId  String  @map("actor_id")
+  priority Int     @default(0)
 
   // Auto-disable em falhas consecutivas
-  consecutiveFailures Int     @default(0) @map("consecutive_failures")
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
   autoPausedAt        DateTime? @map("auto_paused_at")
   autoPausedReason    String?   @map("auto_paused_reason")
 
@@ -1510,10 +1565,10 @@ model Automation {
   rateLimitPerMinute Int @default(10) @map("rate_limit_per_minute")
 
   // Telemetria
-  lastRunAt   DateTime? @map("last_run_at")
-  runCount    Int       @default(0) @map("run_count")
-  successCount Int      @default(0) @map("success_count")
-  failureCount Int      @default(0) @map("failure_count")
+  lastRunAt    DateTime? @map("last_run_at")
+  runCount     Int       @default(0) @map("run_count")
+  successCount Int       @default(0) @map("success_count")
+  failureCount Int       @default(0) @map("failure_count")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -1527,28 +1582,28 @@ model Automation {
 }
 
 model AutomationRun {
-  id             String              @id @default(cuid())
-  automationId   String              @map("automation_id")
-  organizationId String              @map("organization_id")
+  id             String @id @default(cuid())
+  automationId   String @map("automation_id")
+  organizationId String @map("organization_id")
   // outboxEventId: liga o run ao evento que disparou (debug + tracing)
-  outboxEventId  String              @map("outbox_event_id")
-  traceId        String              @map("trace_id")
+  outboxEventId  String @map("outbox_event_id")
+  traceId        String @map("trace_id")
 
-  status         AutomationRunStatus
+  status       AutomationRunStatus
   // errorCode: enum-ish curto pra UI agrupar. Ex:
   //   condition_not_matched | rate_limited | invalid_ref | external_api_error
   //   timeout | actor_unauthorized | kill_switch | cascade_max_depth | loop_detected
-  errorCode      String?             @map("error_code")
-  errorMessage   String?             @map("error_message") @db.Text
+  errorCode    String?             @map("error_code")
+  errorMessage String?             @map("error_message") @db.Text
 
   // Snapshot do payload do evento (debug)
-  triggerPayload Json                @map("trigger_payload")
+  triggerPayload Json @map("trigger_payload")
   // actionsLog: array de { index, type, status, durationMs, error?, output? }
-  actionsLog     Json                @default("[]") @map("actions_log")
+  actionsLog     Json @default("[]") @map("actions_log")
 
-  durationMs     Int?                @map("duration_ms")
-  startedAt      DateTime            @default(now()) @map("started_at")
-  finishedAt     DateTime?           @map("finished_at")
+  durationMs Int?      @map("duration_ms")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
 
   automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
