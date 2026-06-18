@@ -112,6 +112,7 @@ model User {
 
   organizations         UserOrganization[]
   assignedConversations Conversation[]     @relation("AssignedAgent")
+  projectsResponsible   Project[]          @relation("ProjectResponsible")
   sentMessages          Message[]          @relation("MessageSender")
   revokedMessages       Message[]          @relation("MessageRevoker")
   notifications         Notification[]
@@ -196,6 +197,7 @@ model Organization {
   cards         Card[]
   products      Product[]
   segments      Segment[]
+  projects      Project[]
 
   @@map("organizations")
 }
@@ -320,6 +322,41 @@ model SegmentChannel {
   @@unique([segmentId, channelId], name: "uq_segment_channel")
   @@index([channelId], name: "idx_segment_channel_channel")
   @@map("segment_channels")
+}
+
+// ─── Projects (grupo = projeto) ──────────────────
+//
+// Cada grupo de WhatsApp é tratado como um Projeto perene. Um grupo tem N
+// conversas/contatos (um por canal-membro); o invariante estável é o JID do
+// grupo (contact_channels.external_id, "...@g.us"). Por isso o Project é keyed
+// por (organizationId, groupJid) — NÃO por conversa. A ligação projeto↔conversas
+// é feita por leitura (derivando o JID), igual ao SegmentReadService.
+//
+// Extensibilidade: colunas tipadas para o que é estável/filtrável; o resto
+// (campos que vão sendo adicionados) vive em `metadata` (merge no update),
+// sem migration por campo — mesmo padrão de Product/Card/Contact.
+model Project {
+  id                String    @id @default(cuid())
+  organizationId    String    @map("organization_id")
+  groupJid          String    @map("group_jid")
+  name              String
+  hoppeId           String?   @map("hoppe_id")
+  responsibleUserId String?   @map("responsible_user_id")
+  status            String?
+  metadata          Json      @default("{}")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  responsible  User?        @relation("ProjectResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, groupJid], name: "uq_project_org_jid")
+  @@index([organizationId, hoppeId], name: "idx_project_org_hoppe")
+  @@index([organizationId, responsibleUserId], name: "idx_project_org_responsible")
+  @@index([organizationId, status], name: "idx_project_org_status")
+  @@map("projects")
 }
 
 model ChannelAgent {

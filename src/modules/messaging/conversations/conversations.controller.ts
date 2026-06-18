@@ -75,6 +75,9 @@ export class ConversationsController {
     @Query('groups') groups?: string,
     @Query('tagIds') tagIds?: string,
     @Query('segmentId') segmentId?: string,
+    @Query('hoppeId') hoppeId?: string,
+    @Query('responsibleUserId') responsibleUserId?: string,
+    @Query('projectStatus') projectStatus?: string,
   ) {
     const archivedScope =
       archived === 'only' || archived === 'any' ? archived : 'exclude';
@@ -101,6 +104,9 @@ export class ConversationsController {
         kind,
         tagIds: parsedTagIds?.length ? parsedTagIds : undefined,
         segmentId: segmentId || undefined,
+        hoppeId: hoppeId || undefined,
+        responsibleUserId: responsibleUserId || undefined,
+        projectStatus: projectStatus || undefined,
       },
       parseInt(page || '1', 10),
       parseInt(limit || '20', 10),

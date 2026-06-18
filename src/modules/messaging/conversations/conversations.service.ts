@@ -20,6 +20,8 @@ import {
 import { AgentRouterService } from '../../ai-agents/router/agent-router.service';
 import { AiAgentRunnerService } from '../../ai-agents/runner/agent-runner.service';
 import { SegmentReadService } from '../../segments/segment-read.service';
+import { ProjectsService } from '../../projects/projects.service';
+import { deriveGroupJid } from '../../segments/group-jid.util';
 
 const SYNC_MESSAGE_PAGE_SIZE = 50;
 const SYNC_MAX_PAGES = 4;
@@ -39,7 +41,37 @@ export class ConversationsService {
     private readonly agentRouter: AgentRouterService,
     private readonly agentRunner: AiAgentRunnerService,
     private readonly segmentRead: SegmentReadService,
+    private readonly projects: ProjectsService,
   ) {}
+
+  /**
+   * Anexa o `project` (resumo) às conversas de grupo — uma consulta em lote por
+   * JID. Mutação in-place (mesma referência) para reusar nos vários retornos.
+   */
+  private async attachProjects<
+    T extends {
+      organizationId: string;
+      isGroup: boolean;
+      channelId: string;
+      contact?: { channels?: { channelId: string; externalId: string }[] } | null;
+    },
+  >(organizationId: string, conversations: T[]): Promise<T[]> {
+    const jidByConv = new Map<T, string>();
+    for (const c of conversations) {
+      if (!c.isGroup) continue;
+      const jid = deriveGroupJid(c);
+      if (jid) jidByConv.set(c, jid);
+    }
+    if (jidByConv.size === 0) return conversations;
+    const map = await this.projects.attachByJids(
+      organizationId,
+      Array.from(new Set(jidByConv.values())),
+    );
+    for (const [conv, jid] of jidByConv) {
+      (conv as Record<string, unknown>).project = map.get(jid) ?? null;
+    }
+    return conversations;
+  }
 
   private broadcastUpdate(conversation: Conversation | null): void {
     if (!conversation) return;
@@ -70,6 +102,9 @@ export class ConversationsService {
       unreadOnly?: boolean;
       stuckOnly?: boolean;
       segmentId?: string;
+      hoppeId?: string;
+      responsibleUserId?: string;
+      projectStatus?: string;
     },
     page: number,
     limit: number,
@@ -82,25 +117,35 @@ export class ConversationsService {
       .map((s) => s.trim() as ConversationStatus)
       .filter((s) => validStatuses.has(s));
 
-    // Filtro por Segmento = unificação POR LEITURA: pega uma conversa
-    // representante por grupo (JID) entre os canais-membros e lista só
-    // essas (uma linha por grupo, sem duplicar). Sem coluna/merge no banco.
+    // Filtros que unificam por grupo POR LEITURA (Segmento ou Projeto): pegam
+    // uma conversa representante por grupo (JID) e listam só essas — uma linha
+    // por grupo, sem duplicar. Resolvem para conversationIds + channelIds; o
+    // channelIds dá ao planner o índice (org,channel) e evita varrer o índice
+    // de last_message_at (query O(segundos)).
     let conversationIds = filters.conversationIds;
-    let segmentChannelIds: string[] | undefined;
-    if (filters.segmentId) {
-      const { representativeIds, memberChannelIds } =
-        await this.segmentRead.groupRepresentativeIds(
-          organizationId,
-          filters.segmentId,
-        );
-      // Intersecta com conversationIds pré-existente (ex.: inbox view), se houver.
+    let resolvedChannelIds: string[] | undefined;
+    let isGroupResolved = false;
+    const projectFilter =
+      filters.hoppeId || filters.responsibleUserId || filters.projectStatus
+        ? {
+            hoppeId: filters.hoppeId,
+            responsibleUserId: filters.responsibleUserId,
+            status: filters.projectStatus,
+          }
+        : null;
+
+    if (filters.segmentId || projectFilter) {
+      const { representativeIds, memberChannelIds } = filters.segmentId
+        ? await this.segmentRead.groupRepresentativeIds(
+            organizationId,
+            filters.segmentId,
+          )
+        : await this.projects.resolveFilter(organizationId, projectFilter!);
       conversationIds = filters.conversationIds
         ? representativeIds.filter((id) => filters.conversationIds!.includes(id))
         : representativeIds;
-      // Filtra TAMBÉM por canais-membros: dá ao planner o índice (org,channel)
-      // e evita varrer o índice de last_message_at (query O(segundos)).
-      segmentChannelIds = memberChannelIds;
-      // Conjunto vazio → nada a mostrar (evita cair no caminho "sem filtro").
+      resolvedChannelIds = memberChannelIds;
+      isGroupResolved = true;
       if (conversationIds.length === 0) {
         return {
           conversations: [],
@@ -112,12 +157,12 @@ export class ConversationsService {
     const inboxFilters: InboxFilters = {
       organizationId,
       status: parsedStatuses?.length ? parsedStatuses : undefined,
-      // Num segmento o filtro de canal vira o conjunto de canais-membros
-      // (necessário pro plano da query); senão, o filtro de canal do usuário.
-      channelId: filters.segmentId ? undefined : filters.channelId,
-      channelIds: filters.segmentId ? segmentChannelIds : filters.channelIds,
+      // Em filtro de grupo (segmento/projeto) o canal vira o conjunto de
+      // canais resolvidos (necessário pro plano da query); senão, o do usuário.
+      channelId: isGroupResolved ? undefined : filters.channelId,
+      channelIds: isGroupResolved ? resolvedChannelIds : filters.channelIds,
       conversationIds,
-      kind: filters.segmentId ? 'GROUP' : filters.kind,
+      kind: isGroupResolved ? 'GROUP' : filters.kind,
       tagIds: filters.tagIds,
       assignedToId: filters.assignedToId,
       search: filters.search,
@@ -135,6 +180,8 @@ export class ConversationsService {
       currentUserId,
     );
 
+    await this.attachProjects(organizationId, conversations as any[]);
+
     return {
       conversations,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -148,6 +195,7 @@ export class ConversationsService {
       throw new ForbiddenException();
     }
     this.channelAccess.assertChannelAccess(access, conversation.channelId);
+    await this.attachProjects(organizationId, [conversation as any]);
     return conversation;
   }
 
