@@ -16,10 +16,6 @@ export interface InboxFilters {
   /** Filter by conversation kind: individual (1-on-1) vs group (WA group
    *  / IG group thread). Undefined = both. */
   kind?: 'INDIVIDUAL' | 'GROUP';
-  /** Filtra apenas as conversas de um Segmento (grupos compartilhados entre
-   *  vários canais). Compõe com o RBAC de canais (a conversa do segmento vive
-   *  no canal principal, então só aparece se o principal for acessível). */
-  segmentId?: string;
   /** Tag ids applied to the conversation OR its contact. ANY match. */
   tagIds?: string[];
   assignedToId?: string;
@@ -119,7 +115,6 @@ export class ConversationsRepository {
     }
     if (filters.kind === 'INDIVIDUAL') where.isGroup = false;
     else if (filters.kind === 'GROUP') where.isGroup = true;
-    if (filters.segmentId) where.segmentId = filters.segmentId;
     if (filters.tagIds && filters.tagIds.length > 0) {
       // Match conversations that carry ANY of the requested tags. Includes
       // tags applied directly on the conversation OR on its contact —

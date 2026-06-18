@@ -21,6 +21,7 @@ import {
   ChannelAccessService,
 } from '../../iam/channel-access/channel-access.service';
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
+import { SegmentReadService } from '../../segments/segment-read.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class MessagesService {
     private readonly channelAccess: ChannelAccessService,
     private readonly watchdog: WatchdogService,
     private readonly adapterRegistry: ChannelAdapterRegistry,
+    private readonly segmentRead: SegmentReadService,
     @InjectQueue('outbound-messages') private readonly outboundQueue: Queue,
   ) {}
 
@@ -455,11 +457,13 @@ export class MessagesService {
     this.channelAccess.assertChannelAccess(access, conversation.channelId);
 
     const skip = (page - 1) * limit;
-    const { messages, total } = await this.repository.findByConversation(
-      conversationId,
-      skip,
-      limit,
-    );
+    // Grupo de segmento: une as mensagens das conversas-irmãs (mesmo grupo nos
+    // outros números), deduplicando por messageid. Conversa normal segue o
+    // caminho de conversa única.
+    const siblingIds = await this.segmentRead.groupSiblingIds(conversationId);
+    const { messages, total } = siblingIds
+      ? await this.repository.findByConversationsUnioned(siblingIds, skip, limit)
+      : await this.repository.findByConversation(conversationId, skip, limit);
 
     return {
       messages,

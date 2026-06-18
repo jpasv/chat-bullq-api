@@ -19,6 +19,7 @@ import {
 } from '../../iam/channel-access/channel-access.service';
 import { AgentRouterService } from '../../ai-agents/router/agent-router.service';
 import { AiAgentRunnerService } from '../../ai-agents/runner/agent-runner.service';
+import { SegmentReadService } from '../../segments/segment-read.service';
 
 const SYNC_MESSAGE_PAGE_SIZE = 50;
 const SYNC_MAX_PAGES = 4;
@@ -37,6 +38,7 @@ export class ConversationsService {
     private readonly channelAccess: ChannelAccessService,
     private readonly agentRouter: AgentRouterService,
     private readonly agentRunner: AiAgentRunnerService,
+    private readonly segmentRead: SegmentReadService,
   ) {}
 
   private broadcastUpdate(conversation: Conversation | null): void {
@@ -80,13 +82,36 @@ export class ConversationsService {
       .map((s) => s.trim() as ConversationStatus)
       .filter((s) => validStatuses.has(s));
 
+    // Filtro por Segmento = unificação POR LEITURA: pega uma conversa
+    // representante por grupo (JID) entre os canais-membros e lista só
+    // essas (uma linha por grupo, sem duplicar). Sem coluna/merge no banco.
+    let conversationIds = filters.conversationIds;
+    if (filters.segmentId) {
+      const repIds = await this.segmentRead.groupRepresentativeIds(
+        organizationId,
+        filters.segmentId,
+      );
+      // Intersecta com conversationIds pré-existente (ex.: inbox view), se houver.
+      conversationIds = filters.conversationIds
+        ? repIds.filter((id) => filters.conversationIds!.includes(id))
+        : repIds;
+      // Conjunto vazio → nada a mostrar (evita cair no caminho "sem filtro").
+      if (conversationIds.length === 0) {
+        return {
+          conversations: [],
+          pagination: { page, limit, total: 0, totalPages: 0 },
+        };
+      }
+    }
+
     const inboxFilters: InboxFilters = {
       organizationId,
       status: parsedStatuses?.length ? parsedStatuses : undefined,
-      channelId: filters.channelId,
-      channelIds: filters.channelIds,
-      conversationIds: filters.conversationIds,
-      kind: filters.kind,
+      // Num segmento o filtro de canal é ignorado (a lista é por grupo).
+      channelId: filters.segmentId ? undefined : filters.channelId,
+      channelIds: filters.segmentId ? undefined : filters.channelIds,
+      conversationIds,
+      kind: filters.segmentId ? 'GROUP' : filters.kind,
       tagIds: filters.tagIds,
       assignedToId: filters.assignedToId,
       search: filters.search,
@@ -94,7 +119,6 @@ export class ConversationsService {
       archived: filters.archived,
       unreadOnly: filters.unreadOnly,
       stuckOnly: filters.stuckOnly,
-      segmentId: filters.segmentId,
     };
 
     const skip = (page - 1) * limit;

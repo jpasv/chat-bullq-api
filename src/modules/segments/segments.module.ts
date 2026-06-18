@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { SegmentLookupService } from './segment-lookup.service';
+import { SegmentReadService } from './segment-read.service';
 import { SegmentsService } from './segments.service';
 import { SegmentsController } from './segments.controller';
 
@@ -10,7 +11,7 @@ import { SegmentsController } from './segments.controller';
  */
 @Module({
   controllers: [SegmentsController],
-  providers: [SegmentLookupService, SegmentsService],
-  exports: [SegmentLookupService],
+  providers: [SegmentLookupService, SegmentReadService, SegmentsService],
+  exports: [SegmentLookupService, SegmentReadService],
 })
 export class SegmentsModule {}
