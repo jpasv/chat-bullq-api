@@ -17,6 +17,7 @@ import { ConsultarN8nClienteTool } from './builtin/consultar-n8n-cliente.tool';
 import { ListarReunioesClienteTool } from './builtin/listar-reunioes-cliente.tool';
 import { LerTranscricaoReuniaoTool } from './builtin/ler-transcricao-reuniao.tool';
 import { AgendarReuniaoTool } from './builtin/agendar-reuniao.tool';
+import { MoveRecoveryCardTool } from './builtin/move-recovery-card.tool';
 
 /**
  * Registry of BUILT-IN skills (named "tools" in the code for legacy reasons).
@@ -53,6 +54,7 @@ export class ToolRegistry {
     listarReunioesCliente: ListarReunioesClienteTool,
     lerTranscricaoReuniao: LerTranscricaoReuniaoTool,
     agendarReuniao: AgendarReuniaoTool,
+    moveRecoveryCard: MoveRecoveryCardTool,
   ) {
     this.register(reply, ['ORCHESTRATOR', 'WORKER']);
     this.register(transfer, ['ORCHESTRATOR', 'WORKER']);
@@ -86,8 +88,18 @@ export class ToolRegistry {
     this.register(lerTranscricaoReuniao, ['WORKER'], clientOpsAgents);
     this.register(agendarReuniao, ['WORKER'], clientOpsAgents);
 
+    // Recuperação de vendas: mover card no funil — restrito aos agentes do
+    // env RECOVERY_AGENT_IDS (csv). Vazio = nenhum agente (tool inerte).
+    const recoveryAgents = (config.get<string>('RECOVERY_AGENT_IDS') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (recoveryAgents.length > 0) {
+      this.register(moveRecoveryCard, ['WORKER'], recoveryAgents);
+    }
+
     this.logger.log(
-      `Built-in skills loaded: ${[...this.tools.keys()].join(', ')} (client-ops → ${clientOpsAgents.join(', ')})`,
+      `Built-in skills loaded: ${[...this.tools.keys()].join(', ')} (client-ops → ${clientOpsAgents.join(', ')}; recovery → ${recoveryAgents.join(', ') || 'none'})`,
     );
   }
 

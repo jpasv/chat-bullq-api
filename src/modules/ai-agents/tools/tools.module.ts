@@ -16,6 +16,7 @@ import { ConsultarN8nClienteTool } from './builtin/consultar-n8n-cliente.tool';
 import { ListarReunioesClienteTool } from './builtin/listar-reunioes-cliente.tool';
 import { LerTranscricaoReuniaoTool } from './builtin/ler-transcricao-reuniao.tool';
 import { AgendarReuniaoTool } from './builtin/agendar-reuniao.tool';
+import { MoveRecoveryCardTool } from './builtin/move-recovery-card.tool';
 import { HoppeClientService } from './client-ops/hoppe-client.service';
 import { GoogleAuthService } from './client-ops/google-auth.service';
 import { GoogleCalendarService } from './client-ops/google-calendar.service';
@@ -28,6 +29,7 @@ import { HttpToolExecutorService } from './http-tool-executor.service';
 import { SqlToolExecutorService } from './sql-tool-executor.service';
 import { ConfigModule } from '@nestjs/config';
 import { ConfirmationsModule } from '../confirmations/confirmations.module';
+import { SalesRecoveryModule } from '../../sales-recovery/sales-recovery.module';
 
 @Module({
   imports: [
@@ -35,6 +37,7 @@ import { ConfirmationsModule } from '../confirmations/confirmations.module';
     PrismaModule,
     RealtimeModule,
     ConfirmationsModule,
+    SalesRecoveryModule,
     BullModule.registerQueue({ name: 'outbound-messages' }),
   ],
   providers: [
@@ -59,6 +62,7 @@ import { ConfirmationsModule } from '../confirmations/confirmations.module';
     ListarReunioesClienteTool,
     LerTranscricaoReuniaoTool,
     AgendarReuniaoTool,
+    MoveRecoveryCardTool,
     ToolRegistry,
     HttpToolExecutorService,
     SqlToolExecutorService,

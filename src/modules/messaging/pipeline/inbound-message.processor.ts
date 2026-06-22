@@ -15,6 +15,7 @@ import { AiAgentRunnerService } from '../../ai-agents/runner/agent-runner.servic
 import { TranscriptionService } from '../messages/transcription.service';
 import { OutboxService } from '../../automations/outbox/outbox.service';
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
+import { SalesRecoveryService } from '../../sales-recovery/sales-recovery.service';
 import {
   AutomationTrigger,
   ChannelType,
@@ -96,6 +97,7 @@ export class InboundMessageProcessor extends WorkerHost {
     private readonly transcription: TranscriptionService,
     private readonly outbox: OutboxService,
     private readonly watchdog: WatchdogService,
+    private readonly salesRecovery: SalesRecoveryService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
   ) {
     super();
@@ -290,6 +292,13 @@ export class InboundMessageProcessor extends WorkerHost {
         this.watchdog.scheduleCheck(conversationId).catch((err) =>
           this.logger.warn(
             `Watchdog scheduleCheck failed for conv ${conversationId}: ${err?.message ?? err}`,
+          ),
+        );
+        // Recuperação de vendas: se a conversa tem card em "Tentativa de
+        // Contato", o lead respondeu → move pra "Em Contato". No-op fora disso.
+        this.salesRecovery.onInboundReply(conversationId).catch((err) =>
+          this.logger.warn(
+            `Recovery onInboundReply failed for conv ${conversationId}: ${err?.message ?? err}`,
           ),
         );
       } else if (isEcho) {

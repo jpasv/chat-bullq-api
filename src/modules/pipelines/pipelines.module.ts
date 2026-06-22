@@ -7,5 +7,6 @@ import { RealtimeModule } from '../realtime/realtime.module';
   imports: [RealtimeModule],
   controllers: [PipelinesController],
   providers: [PipelinesService],
+  exports: [PipelinesService],
 })
 export class PipelinesModule {}

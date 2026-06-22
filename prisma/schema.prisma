@@ -1373,6 +1373,10 @@ model Pipeline {
   id             String   @id @default(cuid())
   organizationId String   @map("organization_id")
   name           String
+  // Chave semântica estável (ex: "sales_recovery") usada por integrações
+  // automáticas (webhook Kirvano, cron) pra mirar o pipeline sem depender
+  // do nome, que é editável pelo operador na UI. Null pros pipelines comuns.
+  key            String?
   description    String?
   icon           String? // lucide-react icon name
   color          String? // tailwind color hint
@@ -1386,6 +1390,7 @@ model Pipeline {
   stages       PipelineStage[]
   cards        Card[]
 
+  @@unique([organizationId, key], name: "uq_pipeline_org_key")
   @@index([organizationId, archived])
   @@map("pipelines")
 }
@@ -1394,6 +1399,8 @@ model PipelineStage {
   id         String            @id @default(cuid())
   pipelineId String            @map("pipeline_id")
   name       String
+  // Chave semântica estável (ex: "opportunity", "won") — ver Pipeline.key.
+  key        String?
   color      String?
   type       PipelineStageType @default(NORMAL)
   order      Int               @default(0)
@@ -1441,6 +1448,40 @@ model Card {
   @@index([contactId])
   @@index([conversationId])
   @@map("cards")
+}
+
+// ─── Recuperação de Vendas (webhooks Kirvano) ────
+//
+// Log append-only de todo webhook recebido da Kirvano (plataforma de
+// venda de infoprodutos). Espelha WebhookEvent: é a source-of-truth pra
+// replay/auditoria e garante idempotência — o mesmo (event, saleId) só
+// processa uma vez. O processamento (criar/mover card no pipeline de
+// recuperação) acontece de forma assíncrona via fila BullMQ.
+enum KirvanoEventStatus {
+  RECEIVED // gravado, ainda não processado
+  PROCESSED // card criado/movido com sucesso
+  IGNORED // produto fora da lista rastreada / evento sem ação
+  FAILED // erro no processamento (mantém pra retry/auditoria)
+}
+
+model KirvanoEvent {
+  id             String             @id @default(cuid())
+  event          String // SALE_APPROVED, PIX_GENERATED, ABANDONED_CART, ...
+  productUuid    String?            @map("product_uuid")
+  saleId         String?            @map("sale_id")
+  checkoutId     String?            @map("checkout_id")
+  payload        Json
+  headers        Json               @default("{}")
+  status         KirvanoEventStatus @default(RECEIVED)
+  organizationId String?            @map("organization_id")
+  errorMessage   String?            @map("error_message")
+  receivedAt     DateTime           @default(now()) @map("received_at")
+  processedAt    DateTime?          @map("processed_at")
+
+  @@unique([event, saleId], name: "uq_kirvano_event_sale")
+  @@index([event, checkoutId], name: "idx_kirvano_event_checkout")
+  @@index([status, receivedAt(sort: Desc)], name: "idx_kirvano_status_time")
+  @@map("kirvano_events")
 }
 
 // ─── Product Catalog ─────────────────────────────
