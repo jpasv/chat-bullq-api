@@ -17,7 +17,7 @@ interface KirvanoJobData {
  * rastreado e roteia pro service (criar/ganhar/reembolsar card). Marca o
  * KirvanoEvent como PROCESSED/IGNORED/FAILED no fim — auditável e replay-safe.
  */
-@Processor(KIRVANO_EVENTS_QUEUE, { concurrency: 4 })
+@Processor(KIRVANO_EVENTS_QUEUE, { concurrency: 1 })
 export class KirvanoEventsProcessor extends WorkerHost {
   private readonly logger = new Logger(KirvanoEventsProcessor.name);
 
@@ -41,6 +41,14 @@ export class KirvanoEventsProcessor extends WorkerHost {
     }
 
     const k = normalizeKirvano(record.payload);
+
+    // Idempotência de ação: se a mesma (event, sale) já foi processada antes
+    // (retry/duplicata da Kirvano), só registra DUPLICATE e não reprocessa.
+    if (await this.events.alreadyProcessed(record.id, k.event, k.saleId)) {
+      await this.events.markDuplicate(record.id);
+      this.logger.log(`Kirvano ${k.event} sale=${k.saleId} → DUPLICATE (já processado)`);
+      return;
+    }
 
     // Org/canal de outreach (1 org por enquanto). Sem config → falha explícita.
     const organizationId = this.config.orgId;

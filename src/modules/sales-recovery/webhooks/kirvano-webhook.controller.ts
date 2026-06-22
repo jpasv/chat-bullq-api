@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Headers,
   HttpCode,
   Logger,
   Param,
@@ -40,6 +41,7 @@ export class KirvanoWebhookController {
   async handle(
     @Param('secret') secret: string,
     @Body() payload: any,
+    @Headers() headers: Record<string, string>,
   ): Promise<{ status: string }> {
     const expected = this.config.webhookSecret;
     if (!expected || secret !== expected) {
@@ -48,20 +50,21 @@ export class KirvanoWebhookController {
     }
 
     const k = normalizeKirvano(payload);
-    if (!k.event) {
-      return { status: 'no_event' };
-    }
 
+    // Log append-only: grava TODA entrega (com headers), inclusive sem event
+    // ou duplicada. Nada de webhook é perdido.
     const record = await this.events.record(
-      k.event,
+      k.event || 'UNKNOWN',
       k.productUuid,
       k.saleId,
       k.checkoutId,
       payload,
-      undefined,
+      headers,
     );
-    if (!record) {
-      return { status: 'duplicate' };
+
+    if (!k.event) {
+      await this.events.markIgnored(record.id, 'webhook sem campo event');
+      return { status: 'no_event' };
     }
 
     await this.queue.add(

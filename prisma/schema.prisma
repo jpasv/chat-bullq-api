@@ -1461,6 +1461,7 @@ enum KirvanoEventStatus {
   RECEIVED // gravado, ainda não processado
   PROCESSED // card criado/movido com sucesso
   IGNORED // produto fora da lista rastreada / evento sem ação
+  DUPLICATE // mesma (event, sale) já processada antes — só auditoria
   FAILED // erro no processamento (mantém pra retry/auditoria)
 }
 
@@ -1478,7 +1479,9 @@ model KirvanoEvent {
   receivedAt     DateTime           @default(now()) @map("received_at")
   processedAt    DateTime?          @map("processed_at")
 
-  @@unique([event, saleId], name: "uq_kirvano_event_sale")
+  // Log append-only: registra TODA entrega (inclusive duplicadas/retries).
+  // A idempotência de ação é garantida no processor + nos guards de card.
+  @@index([event, saleId], name: "idx_kirvano_event_sale")
   @@index([event, checkoutId], name: "idx_kirvano_event_checkout")
   @@index([status, receivedAt(sort: Desc)], name: "idx_kirvano_status_time")
   @@map("kirvano_events")

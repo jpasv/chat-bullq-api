@@ -13,8 +13,9 @@ export class KirvanoEventsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Persiste o evento. Retorna o registro, ou `null` se já existe um com o
-   * mesmo (event, sale_id) — nesse caso é replay/duplicado e não reprocessa.
+   * Persiste o evento (append-only — registra TODA entrega, inclusive
+   * retries/duplicadas). A idempotência de ação fica no processor + guards
+   * de card. Sempre retorna o registro criado.
    */
   async record(
     event: string,
@@ -23,31 +24,47 @@ export class KirvanoEventsService {
     checkoutId: string | null,
     payload: unknown,
     headers: unknown,
-  ): Promise<KirvanoEvent | null> {
-    try {
-      return await this.prisma.kirvanoEvent.create({
-        data: {
-          event,
-          productUuid,
-          saleId,
-          checkoutId,
-          payload: (payload ?? {}) as Prisma.InputJsonValue,
-          headers: (headers ?? {}) as Prisma.InputJsonValue,
-          status: KirvanoEventStatus.RECEIVED,
-        },
-      });
-    } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        this.logger.log(
-          `Kirvano webhook duplicado ignorado: event=${event} sale=${saleId}`,
-        );
-        return null;
-      }
-      throw err;
-    }
+  ): Promise<KirvanoEvent> {
+    return this.prisma.kirvanoEvent.create({
+      data: {
+        event,
+        productUuid,
+        saleId,
+        checkoutId,
+        payload: (payload ?? {}) as Prisma.InputJsonValue,
+        headers: (headers ?? {}) as Prisma.InputJsonValue,
+        status: KirvanoEventStatus.RECEIVED,
+      },
+    });
+  }
+
+  /**
+   * Já existe uma entrega PROCESSED com o mesmo (event, sale_id)? Usado pelo
+   * processor pra não reprocessar retries (idempotência de ação).
+   */
+  async alreadyProcessed(
+    id: string,
+    event: string,
+    saleId: string | null,
+  ): Promise<boolean> {
+    if (!saleId) return false;
+    const prior = await this.prisma.kirvanoEvent.findFirst({
+      where: {
+        id: { not: id },
+        event,
+        saleId,
+        status: KirvanoEventStatus.PROCESSED,
+      },
+      select: { id: true },
+    });
+    return !!prior;
+  }
+
+  async markDuplicate(id: string): Promise<void> {
+    await this.prisma.kirvanoEvent.update({
+      where: { id },
+      data: { status: KirvanoEventStatus.DUPLICATE, processedAt: new Date() },
+    });
   }
 
   async markProcessed(id: string, organizationId?: string): Promise<void> {
