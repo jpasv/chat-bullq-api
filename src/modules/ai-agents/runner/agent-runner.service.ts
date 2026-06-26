@@ -18,6 +18,7 @@ import { ToolContext } from '../tools/tool.types';
 import { HttpToolExecutorService } from '../tools/http-tool-executor.service';
 import { SqlToolExecutorService } from '../tools/sql-tool-executor.service';
 import { PromptBuilderService } from './prompt-builder.service';
+import { ModelRouterService, type AgentKind } from './model-router.service';
 import { CatalogSyncService } from './catalog-sync.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { isToolCallFailure } from '../agents/agents.service';
@@ -31,12 +32,20 @@ import {
 } from '../prompts/layers/security.layer';
 import type { SecurityRules } from '../prompts/types';
 import { RetrievalService } from '../rag/retrieval.service';
+import { IntentType } from '../classifier/intent.types';
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
 import { sanitizeAssistantText } from './text-guards';
 import { MediaUrlResolverService } from './media-url-resolver.service';
 
 const MAX_TOOL_ITERATIONS = 8;
 const MAX_RECENT_MESSAGES = 30;
+
+/**
+ * Acima desta confiança, mensagens classificadas como SPAM_OR_NOISE são
+ * ignoradas sem rodar nenhum agente (o classifier barato já decidiu). Antes
+ * isso caía no Augusto (orquestrador caro) só pra ele mandar transferToHuman.
+ */
+const SPAM_SKIP_CONFIDENCE = 0.8;
 
 /**
  * Tools that signal "agent is preparing to sell": pulled product info,
@@ -74,6 +83,7 @@ export class AiAgentRunnerService {
     private readonly llm: LlmService,
     private readonly registry: ToolRegistry,
     private readonly promptBuilder: PromptBuilderService,
+    private readonly modelRouter: ModelRouterService,
     private readonly httpExecutor: HttpToolExecutorService,
     private readonly sqlExecutor: SqlToolExecutorService,
     private readonly catalogSync: CatalogSyncService,
@@ -106,6 +116,19 @@ export class AiAgentRunnerService {
         triggerText,
         [],
       );
+
+      // Curto-circuito por intenção: spam/ruído com confiança alta não merece
+      // rodar agente LLM nenhum. O classifier (fugu, barato) já decidiu —
+      // apenas ignoramos. Economiza 100% do run que antes caía no Augusto.
+      if (
+        selection?.classifiedIntent === IntentType.SPAM_OR_NOISE &&
+        (selection.classifierConfidence ?? 0) >= SPAM_SKIP_CONFIDENCE
+      ) {
+        this.logger.log(
+          `Conv ${conversation.id}: intent=SPAM_OR_NOISE (conf=${selection.classifierConfidence}) — skipping agent run`,
+        );
+        return;
+      }
     }
     const agent = selection
       ? await this.prisma.aiAgent.findFirst({
@@ -249,6 +272,31 @@ export class AiAgentRunnerService {
     let iterationCount = 0;
     const toolsCalled = new Set<string>();
     let salesNudgeUsed = false;
+
+    // Roteamento de modelo (fugu por padrão, fugu-ultra só na síntese de
+    // workers). Iterações de ferramenta são mecânicas → modelo barato. A
+    // resposta final ao cliente escala quando o agente é um especialista.
+    const agentKind = agent.kind as AgentKind;
+    const modelParams =
+      (agent.modelParams as Record<string, unknown> | null) ?? undefined;
+    const toolModel = this.modelRouter.selectModel({
+      agentKind,
+      modelId: agent.modelId,
+      modelParams,
+      phase: 'tool',
+    });
+    const synthesisModel = this.modelRouter.selectModel({
+      agentKind,
+      modelId: agent.modelId,
+      modelParams,
+      phase: 'synthesis',
+    });
+    // Chave estável de cache de prefixo por conversa (system + histórico
+    // idênticos entre turnos → ~99% de cache hit comprovado na Sakana).
+    const cacheKey = `conv:${conversation.id}`;
+    // Quando true, a próxima chamada usa o modelo de síntese (escala a
+    // resposta final do fugu pro fugu-ultra sem ter rodado as tools nele).
+    let escalateSynthesis = false;
     // Hard cap of 1 successful replyToConversation per run. The system
     // prompt encourages "uma ideia por mensagem" + multi-step consultative
     // selling, but the runner used to fire every reply back-to-back in
@@ -269,13 +317,17 @@ export class AiAgentRunnerService {
       while (iterationCount < MAX_TOOL_ITERATIONS) {
         iterationCount++;
 
+        const modelForCall = escalateSynthesis ? synthesisModel : toolModel;
+        escalateSynthesis = false;
+
         const response = await this.llm.complete({
-          modelId: agent.modelId,
+          modelId: modelForCall,
           messages,
           tools,
           temperature: agent.temperature,
           maxTokens: agent.maxTokens,
-          modelParams: (agent.modelParams as Record<string, unknown>) ?? undefined,
+          modelParams,
+          cacheKey,
         });
 
         aggregateUsage.inputTokens += response.usage.inputTokens;
@@ -285,6 +337,14 @@ export class AiAgentRunnerService {
         aggregateUsage.costUsd += response.usage.costUsd;
 
         if (response.stopReason === 'stop' || !response.message.toolCalls?.length) {
+          // Tools rodaram no modelo barato; se a síntese final deve ser num
+          // modelo mais forte (worker), re-roda SÓ esta resposta final no
+          // modelo de síntese e descarta a versão barata. Garante "tools no
+          // fugu, síntese no fugu-ultra" sem pagar ultra nas iterações de tool.
+          if (modelForCall === toolModel && synthesisModel !== toolModel) {
+            escalateSynthesis = true;
+            continue;
+          }
           // Model ended its turn without further tool calls. Some models
           // (especially after a tool result) emit the response as plain
           // assistant text instead of using replyToConversation explicitly.

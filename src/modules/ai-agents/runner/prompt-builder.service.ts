@@ -66,7 +66,6 @@ Atualizado em <%= it.operationalContextLabel %>. Use isso pra orientar suas pró
 - Cliente: <%= it.contact.name || 'Sem nome cadastrado' %><% if (it.contact.phone) { %>
 - Telefone: <%= it.contact.phone %><% } %><% if (it.contact.email) { %>
 - E-mail: <%= it.contact.email %><% } %>
-- Hora atual: <%= it.now %> (<%= it.organization.aiTimezone %>)
 <% if (it.memorySummary) { %>
 ═══ Memória de interações anteriores ═══
 <%= it.memorySummary %>
@@ -457,6 +456,17 @@ export class PromptBuilderService {
         content: [
           // The persona + rules block — stable across turns of this conv.
           { type: 'text', text: systemText, cache: true },
+          // Volatile tail: current time changes every turn, so it MUST come
+          // AFTER all stable content. Keeping it here (instead of mid-prompt)
+          // lets the big static prefix (persona + tools + catalog) stay
+          // byte-identical between turns and hit the provider's prefix cache.
+          {
+            type: 'text',
+            text: `\n═══ Agora ═══\n- Hora atual: ${this.formatNow(
+              ctx.organization.aiTimezone,
+            )} (${ctx.organization.aiTimezone})`,
+            cache: false,
+          },
         ],
       },
     ];

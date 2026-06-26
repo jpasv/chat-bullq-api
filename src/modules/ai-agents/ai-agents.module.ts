@@ -8,6 +8,7 @@ import { RealtimeModule } from '../realtime/realtime.module';
 import { ChannelHubModule } from '../channel-hub/channel-hub.module';
 import { PromptBuilderService } from './runner/prompt-builder.service';
 import { AiAgentRunnerService } from './runner/agent-runner.service';
+import { ModelRouterService } from './runner/model-router.service';
 import { CatalogSyncService } from './runner/catalog-sync.service';
 import { MediaUrlResolverService } from './runner/media-url-resolver.service';
 import { AgentRouterService } from './router/agent-router.service';
@@ -49,6 +50,7 @@ import { EvalsModule } from './evals/evals.module';
   providers: [
     PromptBuilderService,
     AiAgentRunnerService,
+    ModelRouterService,
     AgentRouterService,
     AgentsService,
     ToolsCatalogService,

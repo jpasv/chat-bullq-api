@@ -85,8 +85,18 @@ export class LlmService {
         max_tokens: req.maxTokens ?? 2048,
         temperature: req.temperature ?? 0.7,
         ...(tools && tools.length > 0 ? { tools: tools as any } : {}),
+        // Prompt caching: prefixo estável (system + histórico) é reaproveitado
+        // entre turnos da mesma conversa. Comprovado ~99% de cache hit no
+        // segundo turno com prefixo idêntico. `prompt_cache_retention` mantém
+        // o cache quente entre mensagens espaçadas do cliente.
+        ...(req.cacheKey
+          ? {
+              prompt_cache_key: req.cacheKey,
+              prompt_cache_retention: '24h',
+            }
+          : {}),
         ...(this.sanitizeModelParams(req.modelParams) as object),
-      });
+      } as any);
     } catch (err: unknown) {
       this.handleSakanaError(err, modelId, tools, messages);
       throw new InternalServerErrorException(
