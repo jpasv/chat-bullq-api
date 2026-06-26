@@ -6,17 +6,17 @@ Patterns extraídos de `~/www/bullq` (SaaS de email marketing com IA) que valem 
 
 ## 🔥 Top 3 — atacam o problema atual (Augusto promete e não delega)
 
-### 1. Intent classifier upstream (Haiku) ANTES do orchestrator
+### 1. Intent classifier upstream (Fugu) ANTES do orchestrator
 
 **Origem:** `bullq/backend/src/modules/ai-core/services/intent-classifier.service.ts:82-154`
 
-**Ideia:** Modelo barato (Haiku) classifica `{intentCategory, confidence, recommendedAgentId, missingInfo[]}` ANTES de qualquer agent rodar. Se confidence > 0.85, pula o orchestrator e dispara o worker direto. O LLM principal não decide mais "delegar ou não" — esse roteamento é do classifier.
+**Ideia:** Modelo barato (Fugu) classifica `{intentCategory, confidence, recommendedAgentId, missingInfo[]}` ANTES de qualquer agent rodar. Se confidence > 0.85, pula o orchestrator e dispara o worker direto. O LLM principal não decide mais "delegar ou não" — esse roteamento é do classifier.
 
 **Aplicação aqui:**
 - Novo serviço `IntentClassifierService` que roda na primeira mensagem nova de uma conversa.
-- Modelo: Claude Haiku 4.5 (rápido + barato).
+- Modelo: Sakana Fugu (rápido + barato).
 - Schema do output: `{ intent: string, confidence: number, recommendedAgentId?: string, missingInfo: string[] }`.
-- Custo: ~1 chamada Haiku por mensagem nova. Impacto: elimina ~80% do problema atual.
+- Custo: ~1 chamada Fugu por mensagem nova. Impacto: elimina ~80% do problema atual.
 
 ### 2. Confidence-based routing
 
@@ -82,7 +82,7 @@ Cada layer cacheable independente → Layer 1 cache hit altíssimo.
 ## Ordem sugerida de implementação
 
 1. **Briefing como contexto explícito no worker** (1h) — fix imediato, complementa a delegação atômica.
-2. **Intent classifier Haiku upstream** (3h) — elimina problema atual de delegação esquecida.
+2. **Intent classifier Fugu upstream** (3h) — elimina problema atual de delegação esquecida.
 3. **Confidence-based routing** (1h) — depende do (2).
 4. **Confirmation gate em destrutivas** (2h) — necessário pra `revokeAccess`.
 5. **Prompt composition em camadas** (4h) — refactor maior, ganha cache + estrutura.

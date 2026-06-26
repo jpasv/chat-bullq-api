@@ -51,7 +51,7 @@ export class AgentRouterService {
    * 1. Se a conversa já tem `activeAgentId` (continuação de conversa em andamento) →
    *    usa ele direto, sem classificar (evita re-roteamento no meio do papo).
    * 2. Se for primeira mensagem (sem activeAgentId) → chama IntentClassifier
-   *    (Haiku ~200ms, ~$0.0003). Se confidence >= threshold e o intent for
+   *    (Fugu cheap/simple-model path). Se confidence >= threshold e o intent for
    *    direcionável, pula o orchestrator e vai direto pro worker.
    * 3. Fallback: cai no orchestrator AUTONOMOUS do canal (Augusto).
    */

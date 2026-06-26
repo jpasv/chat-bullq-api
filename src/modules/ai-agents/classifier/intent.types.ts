@@ -1,7 +1,7 @@
 /**
  * Tipos canônicos do Intent Classifier.
  *
- * O classifier roda ANTES do orchestrator (Augusto) e usa Haiku pra decidir
+ * O classifier roda ANTES do orchestrator (Augusto) e usa Fugu pra decidir
  * qual worker chamar quando dá pra ter certeza. Isso economiza ~40% de custo
  * + ~1.5s de latência em mensagens onde o roteamento é óbvio.
  *
@@ -41,13 +41,13 @@ export interface ClassificationResult {
   intent: IntentType;
   /** 0.0 — 1.0. Abaixo do threshold cai pro orchestrator. */
   confidence: number;
-  /** Explicação curta do Haiku — útil pra debug e auditoria. */
+  /** Explicação curta do Fugu — útil pra debug e auditoria. */
   reasoning: string;
   /** Ex.: 'Daniel Souza' — null quando o intent vai pro Augusto. */
   suggestedAgent: string | null;
   /** true quando confidence >= threshold E intent não é AMBIGUOUS/SPAM/ESCALATE. */
   skippedOrchestrator: boolean;
-  /** ID do modelo realmente usado (ex.: 'anthropic/claude-3.5-haiku'). */
+  /** ID do modelo realmente usado (ex.: 'sakana/fugu'). */
   modelUsed: string;
   /** Custo desta classificação em USD. */
   costUsd: number;
@@ -58,6 +58,6 @@ export interface ClassificationResult {
 export interface ClassifierConfig {
   /** Default 0.85. Abaixo disso → fallback pro orchestrator. */
   threshold: number;
-  /** Default 'anthropic/claude-3.5-haiku'. */
+  /** Default 'sakana/fugu'. */
   model: string;
 }

@@ -191,7 +191,7 @@ export class AiAgentRunnerService {
     const startedAt = Date.now();
 
     // Resolve URLs playable de mídia (imagens etc) ANTES de construir
-    // o prompt — a Anthropic SDK precisa de URLs públicas pra image
+    // o prompt — o provider LLM precisa de URLs públicas pra image
     // blocks. Cache vive em Message.content.mediaUrl, então runs
     // subsequentes na mesma conversa não pagam de novo.
     const chronological = recentMessages.reverse();
@@ -896,7 +896,7 @@ export class AiAgentRunnerService {
 
   /**
    * Extract plain text from an LlmMessage content. Handles both string
-   * content and content blocks (the cache_control format).
+   * content and content blocks.
    */
   /**
    * Fase 2.5: augmenta o system message do prompt com:
@@ -972,7 +972,7 @@ export class AiAgentRunnerService {
 
   /**
    * Fase 2: enfileira jobs assíncronos pós-run.
-   *  - memory-extractor: Haiku extrai facts/summary atualizado e grava em AiAgentMemory
+   *  - memory-extractor: Fugu extrai facts/summary atualizado e grava em AiAgentMemory
    *  - rag-indexer: gera embedding da mensagem do cliente e indexa em ai_vector_entries
    *
    * Ambos são fire-and-forget — falha aqui não pode interromper o agent run.

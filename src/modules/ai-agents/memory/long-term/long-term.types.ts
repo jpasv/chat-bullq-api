@@ -7,13 +7,13 @@
 export interface MemoryFact {
   /** Plain-text fact (1 short sentence). */
   fact: string;
-  /** Optional bucket — Haiku tags facts as it extracts them. */
+  /** Optional bucket — Fugu tags facts as it extracts them. */
   category?: 'identity' | 'preference' | 'history' | 'context' | string;
-  /** 0-1, defaults to 0.8 when Haiku doesn't return one. */
+  /** 0-1, defaults to 0.8 when Fugu doesn't return one. */
   confidence?: number;
   /** ISO timestamp of when this fact was extracted/added. */
   extractedAt: string;
-  /** `manual` = operator-edited, `auto` = extracted by the Haiku worker. */
+  /** `manual` = operator-edited, `auto` = extracted by the Fugu worker. */
   source: 'manual' | 'auto';
 }
 
@@ -37,7 +37,7 @@ export interface ExtractionInput {
   contactId: string;
   /** Last ~20 turns, in chronological order (oldest first). */
   recentMessages: ExtractionMessage[];
-  /** Whatever is already stored — Haiku uses it to dedupe + invalidate. */
+  /** Whatever is already stored — Fugu uses it to dedupe + invalidate. */
   currentMemory: AgentMemoryRecord | null;
 }
 
@@ -47,7 +47,7 @@ export interface ExtractionMessage {
   createdAt: string;
 }
 
-/** Output of the Haiku extractor — what to merge back into the memory row. */
+/** Output of the Fugu extractor — what to merge back into the memory row. */
 export interface ExtractionResult {
   /** Newly observed facts not present in `currentMemory`. */
   newFacts: MemoryFact[];
@@ -55,9 +55,9 @@ export interface ExtractionResult {
   factsToRemove: string[];
   /** New 1-paragraph summary, or null if there was nothing new to update. */
   summaryUpdate: string | null;
-  /** Free-form explanation from Haiku — useful for debugging/audit. */
+  /** Free-form explanation from Fugu — useful for debugging/audit. */
   reasoning: string;
-  /** USD cost of the Haiku call. */
+  /** USD cost of the Fugu call. */
   costUsd: number;
 }
 

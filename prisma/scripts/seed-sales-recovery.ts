@@ -130,7 +130,7 @@ async function main() {
       description: 'Reengaja leads que não concluíram a compra.',
       kind: 'WORKER',
       department: 'VENDAS',
-      modelId: 'claude-sonnet-4-6',
+      modelId: 'sakana/fugu-ultra-20260615',
       systemPrompt: SYSTEM_PROMPT,
       temperature: 0.7,
       followUpEnabled: true,

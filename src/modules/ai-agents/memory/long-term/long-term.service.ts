@@ -8,7 +8,7 @@ import { AgentMemoryRecord, MemoryFact } from './long-term.types';
  *
  * One row per (agentId, contactId). The `facts` JSON column stores an array
  * of `MemoryFact` (we deserialize on read, serialize on write). All callers
- * — the Haiku extractor, the operator UI, the context enrichment service —
+ * — the Fugu extractor, the operator UI, the context enrichment service —
  * go through this service so the JSON shape stays consistent.
  */
 @Injectable()

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
 import { LlmMessage } from '../llm/llm.types';
+import { SAKANA_SIMPLE_MODEL } from '../llm/llm.constants';
 import {
   CLASSIFIER_SYSTEM_PROMPT,
   buildClassifierUserPrompt,
@@ -17,15 +18,15 @@ import { IntentRouterService } from './intent-router.service';
  * Camada leve de pré-roteamento que roda antes do orchestrator (Augusto).
  *
  * Fluxo:
- *  1. Pega a mensagem (e até 3 do histórico) e manda pro Haiku via LlmService
+ *  1. Pega a mensagem (e até 3 do histórico) e manda pro Fugu via LlmService
  *     pedindo um JSON estruturado.
  *  2. Faz parsing tolerante — se o modelo voltar markdown ou texto extra,
  *     ainda extrai o JSON de dentro.
  *  3. Decide se o orchestrator pode ser pulado: precisa de confidence acima
  *     do threshold E intent direcionável (não AMBIGUOUS/SPAM/ESCALATE/SMALL).
  *  4. Estima custo da chamada — se o LlmService já trouxe `usage.costUsd`,
- *     usa direto; caso contrário, calcula com base nos tokens (Haiku tem
- *     preço público estável).
+ *     usa direto; caso contrário, calcula com base nos tokens (Fugu tem
+ *     custo retornado pelo provider).
  *
  * Erros NÃO derrubam a request: se o classifier falhar, devolve um result
  * com intent=AMBIGUOUS pra forçar fallback no orchestrator.
@@ -33,13 +34,8 @@ import { IntentRouterService } from './intent-router.service';
 @Injectable()
 export class IntentClassifierService {
   private readonly logger = new Logger(IntentClassifierService.name);
-  private readonly DEFAULT_MODEL = 'claude-haiku-4-5';
+  private readonly DEFAULT_MODEL = SAKANA_SIMPLE_MODEL;
   private readonly DEFAULT_THRESHOLD = 0.85;
-
-  // Preço público da Anthropic pra Haiku 3.5 (USD por token).
-  // Usado só como fallback quando o provider não retorna `cost`.
-  private readonly HAIKU_INPUT_USD_PER_TOKEN = 1.0 / 1_000_000;
-  private readonly HAIKU_OUTPUT_USD_PER_TOKEN = 5.0 / 1_000_000;
 
   constructor(
     private readonly llm: LlmService,
@@ -103,13 +99,7 @@ export class IntentClassifierService {
       const skippedOrchestrator =
         route.shouldSkipOrchestrator && confidence >= threshold;
 
-      // Custo: prefere o `cost` do provider quando disponível, senão
-      // estima com a tabela de preço do Haiku.
-      const costUsd =
-        resp.usage.costUsd > 0
-          ? resp.usage.costUsd
-          : resp.usage.inputTokens * this.HAIKU_INPUT_USD_PER_TOKEN +
-            resp.usage.outputTokens * this.HAIKU_OUTPUT_USD_PER_TOKEN;
+      const costUsd = resp.usage.costUsd;
 
       const durationMs = Date.now() - t0;
 

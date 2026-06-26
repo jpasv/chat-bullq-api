@@ -14,9 +14,9 @@ import { MemoryExtractorService } from './memory-extractor.service';
 export const MEMORY_EXTRACTOR_QUEUE = 'memory-extractor';
 
 /**
- * BullMQ worker that runs the Haiku extractor after each successful agent
+ * BullMQ worker that runs the Fugu extractor after each successful agent
  * run. Enqueued by the runner (Agent 7's territory) — this processor just
- * pulls the last 20 turns, asks Haiku what changed, and persists the diff.
+ * pulls the last 20 turns, asks Fugu what changed, and persists the diff.
  *
  * Concurrency is intentionally low: extraction is async and not on the
  * critical path for replying to the user, so we don't need to scale it

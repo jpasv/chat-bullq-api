@@ -16,7 +16,7 @@ import { RagIndexerProcessor } from './indexer.processor';
  *  - `EmbeddingsService`     OpenAI embeddings (text-embedding-3-small)
  *  - `VectorStoreService`    Postgres + pgvector raw SQL via Prisma
  *  - `RetrievalService`      embed → search → optional rerank
- *  - `RerankerService`       Haiku-based relevance re-ranker (optional)
+ *  - `RerankerService`       Fugu-based relevance re-ranker (optional)
  *  - `RagIndexerProcessor`   BullMQ worker on `rag-indexer` queue
  *
  * NOTE: the `ai_vector_entries` table + pgvector extension are NOT in
