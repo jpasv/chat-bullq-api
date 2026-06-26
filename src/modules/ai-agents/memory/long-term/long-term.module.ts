@@ -13,7 +13,7 @@ import { MemoryExtractorService } from './memory-extractor.service';
  *
  * Exposes:
  *   - `LongTermMemoryService`     — CRUD over `ai_agent_memories`
- *   - `MemoryExtractorService`    — Haiku-powered fact extractor (callable
+ *   - `MemoryExtractorService`    — Fugu-powered fact extractor (callable
  *                                   directly, not just from the worker)
  *   - `ContextEnrichmentService`  — builds the Layer-4 `EnrichedContext`
  *                                   payload for the prompt composer

@@ -7,7 +7,7 @@ import { DEFAULT_RAG_CONFIG, type SearchResult } from './types';
  * Optional second pass after vector search. The vector store gives us
  * the top-K by raw cosine similarity, but cosine similarity doesn't know
  * what the query is *asking* — only what it's *similar to*. A small,
- * fast LLM (Haiku) can cheaply re-order the K candidates by actual
+ * fast LLM (Fugu) can cheaply re-order the K candidates by actual
  * relevance to the question.
  *
  * This is a stub: it preserves the candidate scores but exposes the

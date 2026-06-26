@@ -36,7 +36,7 @@ export interface PromptContext {
   mediaUrls?: Map<string, { url: string; mimeType?: string }>;
 }
 
-/** Tipos de imagem que a Anthropic SDK aceita pra vision. */
+/** Tipos de imagem enviados ao provider com suporte a vision. */
 const VISION_MIMES = new Set([
   'image/jpeg',
   'image/jpg',
@@ -439,8 +439,7 @@ export class PromptBuilderService {
   /**
    * Builds the message array sent to the LLM. The system prompt is split
    * into a stable cacheable block (instructions + agent persona) and a
-   * volatile block (current time, recent messages) so Anthropic prompt
-   * caching kicks in on repeat turns of the same conversation.
+   * volatile block (current time, recent messages) so provider prompt caching can kick in on repeat turns when supported.
    */
   buildMessages(ctx: PromptContext): LlmMessage[] {
     const systemText = this.eta.renderString(SYSTEM_TEMPLATE, {
@@ -463,15 +462,12 @@ export class PromptBuilderService {
     ];
 
     // Recent message history → user/assistant turns. We merge consecutive
-    // messages from the same author into a single turn — Anthropic models
-    // reject conversations with two adjacent turns of the same role with a
-    // 400 "messages: roles must alternate". Customers regularly send 2-3
+    // messages from the same author into a single turn — some chat providers handle alternating turns better than adjacent turns from the same role. Customers regularly send 2-3
     // messages in a row, so this merge is load-bearing.
     //
     // Mensagens type=IMAGE viram image block (vision) quando temos URL
     // pública resolvida em ctx.mediaUrls. Sem URL = fallback pra texto
-    // descritivo "[imagem enviada]". Image só vai em role=user (Anthropic
-    // não aceita imagens em assistant).
+    // descritivo "[imagem enviada]". Image só vai em role=user (assistant não envia imagens).
     for (const m of ctx.recentMessages) {
       const role: 'user' | 'assistant' =
         m.direction === 'INBOUND' ? 'user' : 'assistant';
@@ -502,8 +498,7 @@ export class PromptBuilderService {
       }
     }
 
-    // Anthropic exige que `messages` termine em role=user — caso contrário
-    // 400 "This model does not support assistant message prefill". Acontece
+    // Mantém um turno final user neutro quando o histórico termina em assistant/outbound. Acontece
     // quando o histórico tem outbound trailing (handoff invisível, humano
     // respondeu após último inbound, etc). Empurra um turno user neutro com
     // o triggerMessage pra forçar a alternância e dar contexto explícito.
@@ -537,8 +532,7 @@ export class PromptBuilderService {
 
   /**
    * Converte uma Message em array de content parts (text + image). Image
-   * blocks só são emitidos pra role=user (Anthropic não aceita assistant
-   * images) e quando temos URL playable resolvida + mime supported.
+   * blocks só são emitidos pra role=user e quando temos URL playable resolvida + mime supported.
    */
   private extractContentParts(
     message: Message,
@@ -556,12 +550,12 @@ export class PromptBuilderService {
         // Vision: anexa image block antes do caption (se houver).
         parts.push({ type: 'image', url: media.url });
       } else {
-        // Fallback: URL não resolvida ou mime não suportado pelo Claude.
+        // Fallback: URL não resolvida ou mime não suportado para vision.
         // Sinaliza explicitamente pra IA não inventar/improvisar.
         parts.push({
           type: 'text',
           text: media?.url
-            ? `[imagem enviada — formato ${mime || 'desconhecido'} não suportado]`
+            ? `[imagem enviada — formato ${mime || 'desconhecido'} não suportado para vision]`
             : '[imagem enviada — não foi possível carregar pra eu visualizar]',
         });
       }

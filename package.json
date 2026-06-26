@@ -16,14 +16,14 @@
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",
     "evals": "ts-node -P tsconfig.json --transpile-only src/modules/ai-agents/evals/cli.ts",
-    "evals:agent": "ts-node -P tsconfig.json --transpile-only src/modules/ai-agents/evals/cli.ts --agent"
+    "evals:agent": "ts-node -P tsconfig.json --transpile-only src/modules/ai-agents/evals/cli.ts --agent",
+    "ai:migrate-sakana": "ts-node prisma/scripts/migrate-agents-to-sakana.ts"
   },
   "type": "commonjs",
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.1",
     "@nestjs/bullmq": "^11.0.0",
     "@nestjs/common": "^11.1.0",
     "@nestjs/config": "^4.0.0",

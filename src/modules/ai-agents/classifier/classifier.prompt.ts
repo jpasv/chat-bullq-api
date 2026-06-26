@@ -1,7 +1,7 @@
 import { ClassifierMessage } from './intent.types';
 
 /**
- * System prompt do classifier. Bem enxuto de propósito — Haiku é rápido e
+ * System prompt do classifier. Bem enxuto de propósito — Fugu é rápido e
  * barato, mas precisa de instrução clara pra não inventar intent novo.
  *
  * Mantém ~300 tokens. Qualquer coisa muito mais longa anula a economia.

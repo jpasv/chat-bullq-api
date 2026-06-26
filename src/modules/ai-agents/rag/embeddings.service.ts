@@ -4,8 +4,7 @@ import type { EmbeddingResult } from './types';
 
 /**
  * Generates embeddings via the OpenAI Embeddings API (`text-embedding-3-small`,
- * 1536 dims, ~$0.02 per 1M tokens). Anthropic does not provide an embeddings
- * endpoint, so this is the one place we still depend on OpenAI.
+ * 1536 dims, ~$0.02 per 1M tokens). This remains an embeddings-only OpenAI dependency; conversational LLM calls go through Sakana.
  *
  * The service is stateless: each call is one HTTP request. Batching is
  * supported via `embedBatch` to amortize round-trip latency when indexing

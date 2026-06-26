@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { LlmService } from '../../llm/llm.service';
+import { SAKANA_SIMPLE_MODEL } from '../../llm/llm.constants';
 import {
   ExtractionInput,
   ExtractionResult,
@@ -8,21 +9,18 @@ import {
 } from './long-term.types';
 
 /**
- * Memory extractor — uses Claude Haiku to read the recent
+ * Memory extractor — uses cheap Sakana Fugu to read the recent
  * conversation + the current memory and emit:
  *   - `newFacts`: facts that aren't already known
  *   - `factsToRemove`: facts that became stale or contradicted
  *   - `summaryUpdate`: a refreshed 1-paragraph summary (or null)
  *
- * This is the cheap pass we run after every successful agent run. The
- * model is fixed to Haiku because (a) the cost scales linearly with
- * conversation volume and (b) extraction is a structured, low-creativity
- * task where Haiku is plenty.
+ * This is the cheap pass we run after every successful agent run. The model is fixed to the cheaper Fugu path because extraction is a structured, low-creativity task and cost scales linearly with conversation volume.
  */
 @Injectable()
 export class MemoryExtractorService {
   private readonly logger = new Logger(MemoryExtractorService.name);
-  private readonly modelId = 'claude-haiku-4-5';
+  private readonly modelId = SAKANA_SIMPLE_MODEL;
 
   constructor(private readonly llm: LlmService) {}
 
@@ -43,7 +41,7 @@ export class MemoryExtractorService {
       });
     } catch (err) {
       this.logger.error(
-        `Haiku extraction failed agent=${input.agentId} contact=${input.contactId}: ${(err as Error).message}`,
+        `Fugu extraction failed agent=${input.agentId} contact=${input.contactId}: ${(err as Error).message}`,
       );
       return this.emptyResult();
     }
@@ -59,7 +57,7 @@ export class MemoryExtractorService {
     const parsed = this.tolerantParse(content);
     if (!parsed) {
       this.logger.warn(
-        `Haiku returned non-JSON for agent=${input.agentId} contact=${input.contactId}: ${content.slice(0, 200)}`,
+        `Fugu returned non-JSON for agent=${input.agentId} contact=${input.contactId}: ${content.slice(0, 200)}`,
       );
       return { ...this.emptyResult(), costUsd: response.usage.costUsd };
     }
@@ -125,7 +123,7 @@ Extraia em JSON.`;
 
   /**
    * Tries `JSON.parse` straight away, then falls back to extracting the
-   * first `{...}` block from the output. Haiku occasionally wraps JSON
+   * first `{...}` block from the output. Fugu occasionally wraps JSON
    * in markdown fences or adds a leading sentence even when asked not to.
    */
   private tolerantParse(raw: string): Record<string, unknown> | null {

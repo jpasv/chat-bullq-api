@@ -947,7 +947,7 @@ model AiAgent {
   // Contexto vivo da operação — atualizado quase diariamente pelo
   // operador. Ex: "Hoje teve aula sobre Skills. Ofereça Dominando
   // Claude Code R$ 1.497 (link X) pra quem responder feedback positivo."
-  // Injetado no system prompt em todo run, marcado como cache_control
+  // Injetado no system prompt em todo run, marcado como prompt-cache marker
   // ephemeral pra não inflar token cost — quando o JP edita, o cache
   // é invalidado naturalmente pela mudança de hash.
   operationalContext          String?   @map("operational_context")
@@ -1192,7 +1192,7 @@ model AiAgentRun {
   costUsd          Decimal @default(0) @map("cost_usd") @db.Decimal(10, 6)
   durationMs       Int?    @map("duration_ms")
 
-  /// Intent classificado pelo IntentClassifier (Haiku). NULL = não passou pelo classifier.
+  /// Intent classificado pelo IntentClassifier (Fugu). NULL = não passou pelo classifier.
   classifiedIntent     String?  @map("classified_intent")
   classifierConfidence Decimal? @map("classifier_confidence") @db.Decimal(4, 3)
   /// True se o classifier teve confidence alta o bastante pra pular o orchestrator (Augusto).

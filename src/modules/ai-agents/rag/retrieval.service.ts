@@ -12,7 +12,7 @@ import { DEFAULT_RAG_CONFIG, type SearchQuery, type SearchResult } from './types
  *   1. Embed the query string (1 OpenAI call).
  *   2. Run cosine similarity search in the vector store, scoped by
  *      agent / contact / conversation / owner type.
- *   3. Optionally rerank with Haiku (off by default — keep it cheap).
+ *   3. Optionally rerank with the cheap Fugu model (off by default — keep it cheap).
  */
 @Injectable()
 export class RetrievalService {

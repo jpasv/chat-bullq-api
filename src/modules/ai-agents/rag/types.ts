@@ -4,7 +4,7 @@
  * Pipeline: text → embedding (OpenAI text-embedding-3-small, 1536 dims)
  *         → vector store (Postgres + pgvector)
  *         → similarity search (cosine, top-K)
- *         → optional Haiku reranker
+ *         → optional cheap Fugu reranker
  *         → injected into Layer 4 CONTEXT of the prompt composer
  *
  * Used by the agent runner to recover context that fell out of the
@@ -77,9 +77,9 @@ export interface RagConfig {
   k: number;
   /** Default minimum cosine similarity. */
   minScore: number;
-  /** Whether to run the Haiku reranker after vector search. */
+  /** Whether to run the cheap Fugu reranker after vector search. */
   rerankEnabled: boolean;
-  /** Model id for the reranker (Anthropic format, e.g. `claude-haiku-4-5`). */
+  /** Model id for the reranker (Sakana format, e.g. `sakana/fugu`). */
   rerankerModel: string;
 }
 
@@ -116,5 +116,5 @@ export const DEFAULT_RAG_CONFIG: RagConfig = {
   k: 5,
   minScore: 0.7,
   rerankEnabled: false,
-  rerankerModel: 'anthropic/claude-3.5-haiku',
+  rerankerModel: 'sakana/fugu',
 };

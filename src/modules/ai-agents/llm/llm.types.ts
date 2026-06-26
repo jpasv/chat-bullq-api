@@ -1,6 +1,6 @@
 /**
  * Tipos LLM normalizados — desacoplam o resto do codebase do SDK.
- * Hoje todos os agents falam com a Anthropic API direto via LlmService.
+ * Todos os agents falam com o provider LLM via LlmService.
  */
 
 export type LlmRole = 'system' | 'user' | 'assistant' | 'tool';
@@ -8,13 +8,13 @@ export type LlmRole = 'system' | 'user' | 'assistant' | 'tool';
 export interface LlmTextPart {
   type: 'text';
   text: string;
-  /** When true, this block is marked as cacheable for Anthropic models. */
+  /** When true, this block is stable and may be cacheable by providers that support prompt caching. */
   cache?: boolean;
 }
 
 /**
- * Image input block. Anthropic SDK aceita tanto URL pública quanto base64.
- * URL é o caminho preferido — Anthropic baixa o bytes do lado deles uma
+ * Image input block. O provider aceita tanto URL pública quanto base64 quando houver suporte a vision.
+ * URL é o caminho preferido — o provider baixa os bytes do lado dele uma
  * vez por request. Base64 só quando a URL não é pública (raro hoje, todos
  * os 3 canais resolvem mídia pra URL pública via media-resolver).
  */

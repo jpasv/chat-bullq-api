@@ -12,7 +12,7 @@ import { EvalsController } from './evals.controller';
 /**
  * Sistema de evals (testes automatizados de prompt) dos agents de IA.
  * Roda casos declarativos contra um agent, valida tool calls + conteúdo
- * + final action, e usa um LLM-as-judge (Haiku) para asserções subjetivas.
+ * + final action, e usa um LLM-as-judge (Fugu) para asserções subjetivas.
  *
  * O runner carrega o agent + skills do DB, monta o prompt via PromptComposer,
  * chama o LlmService com tools (built-in + custom skills) e CAPTURA os
