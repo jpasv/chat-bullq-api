@@ -21,8 +21,10 @@ import {
   CurrentChannelAccess,
   CurrentOrg,
   CurrentUser,
+  CurrentUserRole,
 } from '../../common/decorators';
 import type { ChannelAccess } from '../iam/channel-access/channel-access.service';
+import { OrgRole } from '@prisma/client';
 
 @ApiTags('Inbox Views')
 @ApiBearerAuth()
@@ -90,6 +92,7 @@ export class InboxViewsController {
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -119,6 +122,7 @@ export class InboxViewsController {
         assignedToId,
         stuck,
       },
+      role,
     );
   }
 }

@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { OrgRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { ConversationsService } from '../messaging/conversations/conversations.service';
 import type { ChannelAccess } from '../iam/channel-access/channel-access.service';
@@ -207,6 +208,7 @@ export class InboxViewsService {
       assignedToId?: string;
       stuck?: string;
     },
+    role?: OrgRole,
   ) {
     const view = await this.findOne(id, organizationId, userId);
     const filters = (view.filters ?? {}) as InboxViewFiltersDto;
@@ -280,6 +282,7 @@ export class InboxViewsService {
       limit,
       access,
       userId,
+      role,
     );
   }
 }
