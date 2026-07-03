@@ -207,6 +207,8 @@ export class InboxViewsService {
       tagIds?: string;
       assignedToId?: string;
       stuck?: string;
+      dateFrom?: string;
+      dateTo?: string;
     },
     role?: OrgRole,
   ) {
@@ -277,6 +279,8 @@ export class InboxViewsService {
         archived: finalArchived,
         unreadOnly: finalUnread,
         stuckOnly: finalStuck || undefined,
+        dateFrom: ov.dateFrom || undefined,
+        dateTo: ov.dateTo || undefined,
       },
       page,
       limit,

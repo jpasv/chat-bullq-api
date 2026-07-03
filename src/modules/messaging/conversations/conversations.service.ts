@@ -27,6 +27,12 @@ import { deriveGroupJid } from '../../segments/group-jid.util';
 const SYNC_MESSAGE_PAGE_SIZE = 50;
 const SYNC_MAX_PAGES = 4;
 
+function parseDate(v?: string): Date | undefined {
+  if (!v) return undefined;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
 @Injectable()
 export class ConversationsService {
   private readonly logger = new Logger(ConversationsService.name);
@@ -106,6 +112,8 @@ export class ConversationsService {
       hoppeId?: string;
       responsibleUserId?: string;
       projectStatus?: string;
+      dateFrom?: string;
+      dateTo?: string;
     },
     page: number,
     limit: number,
@@ -175,6 +183,8 @@ export class ConversationsService {
       archived: filters.archived,
       unreadOnly: filters.unreadOnly,
       stuckOnly: filters.stuckOnly,
+      dateFrom: parseDate(filters.dateFrom),
+      dateTo: parseDate(filters.dateTo),
     };
 
     const skip = (page - 1) * limit;

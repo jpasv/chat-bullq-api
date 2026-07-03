@@ -104,6 +104,8 @@ export class InboxViewsController {
     @Query('tagIds') tagIds?: string,
     @Query('assignedToId') assignedToId?: string,
     @Query('stuck') stuck?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.service.findConversations(
       id,
@@ -121,6 +123,8 @@ export class InboxViewsController {
         tagIds,
         assignedToId,
         stuck,
+        dateFrom,
+        dateTo,
       },
       role,
     );

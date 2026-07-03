@@ -60,6 +60,16 @@ export class ConversationsController {
     description:
       'CSV de IDs de tags. OR — devolve conversas que tenham QUALQUER uma das tags (na conversa OU no contato).',
   })
+  @ApiQuery({
+    name: 'dateFrom',
+    required: false,
+    description: 'ISO date; filtra por última atividade (lastMessageAt) >=',
+  })
+  @ApiQuery({
+    name: 'dateTo',
+    required: false,
+    description: 'ISO date; filtra por última atividade (lastMessageAt) <=',
+  })
   findInbox(
     @CurrentOrg('id') orgId: string,
     @CurrentUser('id') userId: string,
@@ -80,6 +90,8 @@ export class ConversationsController {
     @Query('hoppeId') hoppeId?: string,
     @Query('responsibleUserId') responsibleUserId?: string,
     @Query('projectStatus') projectStatus?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     const archivedScope =
       archived === 'only' || archived === 'any' ? archived : 'exclude';
@@ -109,6 +121,8 @@ export class ConversationsController {
         hoppeId: hoppeId || undefined,
         responsibleUserId: responsibleUserId || undefined,
         projectStatus: projectStatus || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
       },
       parseInt(page || '1', 10),
       parseInt(limit || '20', 10),

@@ -46,6 +46,9 @@ export interface InboxFilters {
    * filtro/widget do dashboard.
    */
   stuckOnly?: boolean;
+  /** Inclusive bounds on lastMessageAt (last activity). Dates already parsed. */
+  dateFrom?: Date;
+  dateTo?: Date;
 }
 
 @Injectable()
@@ -137,6 +140,12 @@ export class ConversationsRepository {
       where.assignedToId = filters.enforceAssignedToId;
     }
     if (filters.stuckOnly) where.isStuck = true;
+    if (filters.dateFrom || filters.dateTo) {
+      where.lastMessageAt = {
+        ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
+        ...(filters.dateTo ? { lte: filters.dateTo } : {}),
+      };
+    }
     if (filters.search) {
       where.OR = [
         { contact: { name: { contains: filters.search, mode: 'insensitive' } } },
