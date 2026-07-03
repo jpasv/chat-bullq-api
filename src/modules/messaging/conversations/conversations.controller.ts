@@ -18,6 +18,7 @@ import {
   CurrentUser,
   CurrentOrg,
   CurrentChannelAccess,
+  CurrentUserRole,
   Roles,
 } from '../../../common/decorators';
 import type { ChannelAccess } from '../../iam/channel-access/channel-access.service';
@@ -63,6 +64,7 @@ export class ConversationsController {
     @CurrentOrg('id') orgId: string,
     @CurrentUser('id') userId: string,
     @CurrentChannelAccess() access: ChannelAccess,
+    @CurrentUserRole() role: OrgRole,
     @Query('status') status?: string,
     @Query('channelId') channelId?: string,
     @Query('assignedToId') assignedToId?: string,
@@ -112,6 +114,7 @@ export class ConversationsController {
       parseInt(limit || '20', 10),
       access,
       userId,
+      role,
     );
   }
 
@@ -181,8 +184,10 @@ export class ConversationsController {
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @CurrentChannelAccess() access: ChannelAccess,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
   ) {
-    return this.service.findOne(id, orgId, access);
+    return this.service.findOne(id, orgId, access, userId, role);
   }
 
   @Patch(':id')
