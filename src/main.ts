@@ -7,6 +7,7 @@ import * as express from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import { AppModule } from './app.module';
+import { PublicApiModule } from './modules/public-api/public-api.module';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -59,10 +60,26 @@ async function bootstrap() {
     .build();
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swagger));
 
+  // Dedicated public API docs — only the PublicApiModule surface, published
+  // separately from the internal /docs.
+  const publicSwagger = new DocumentBuilder()
+    .setTitle('Chat BullQ — Public API')
+    .setDescription(
+      'API pública de integração (contatos, canais, conversas, mensagens). Autentique com Authorization: Bearer <API_KEY>.',
+    )
+    .setVersion('1.0')
+    .addApiKey({ type: 'apiKey', name: 'Authorization', in: 'header' }, 'api-key')
+    .build();
+  const publicDoc = SwaggerModule.createDocument(app, publicSwagger, {
+    include: [PublicApiModule],
+  });
+  SwaggerModule.setup('docs/public', app, publicDoc);
+
   const port = config.get<number>('PORT', 3001);
   await app.listen(port);
   logger.log(`API running on http://localhost:${port}`);
   logger.log(`Swagger docs at http://localhost:${port}/docs`);
+  logger.log(`Public API docs at http://localhost:${port}/docs/public`);
 }
 
 bootstrap();
