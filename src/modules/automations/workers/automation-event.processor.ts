@@ -7,6 +7,7 @@ import { AUTOMATION_QUEUE } from '../automations.constants';
 import { AutomationJobData } from '../automations.types';
 import { KillSwitchService } from '../kill-switch.service';
 import { AutomationExecutorService } from '../engine/automation-executor.service';
+import { WebhookDispatchService } from '../../webhooks/webhook-dispatch.service';
 
 // PR2 worker: full executor wired in. The poller fed us the event; we
 // hand it to the executor which finds matching rules, evaluates conditions,
@@ -23,12 +24,28 @@ export class AutomationEventProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly killSwitch: KillSwitchService,
     private readonly executor: AutomationExecutorService,
+    private readonly webhookDispatch: WebhookDispatchService,
   ) {
     super();
   }
 
   async process(job: Job<AutomationJobData>): Promise<void> {
     const { outboxEventId } = job.data;
+
+    // Non-blocking fan-out: notify external webhook subscribers of this
+    // outbox event in parallel with automation processing. Must never
+    // throw out of process() — a webhook delivery failure is not an
+    // automation failure and must not trigger BullMQ retries here.
+    try {
+      await this.webhookDispatch.dispatch({
+        outboxEventId: job.data.outboxEventId,
+        organizationId: job.data.organizationId,
+        trigger: job.data.trigger,
+        payload: job.data.payload,
+      });
+    } catch (err) {
+      this.logger.warn(`webhook dispatch falhou (outbox=${job.data.outboxEventId}): ${(err as Error).message}`);
+    }
 
     if (!this.killSwitch.isEnabled()) {
       await this.markProcessed(outboxEventId, 'kill_switch_disabled');
