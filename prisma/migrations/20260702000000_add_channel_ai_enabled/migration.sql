@@ -1,0 +1,12 @@
+-- Adiciona a coluna tri-state `ai_enabled` que faltava na tabela `channels`.
+--
+-- O campo já existia em schema.prisma (Channel.aiEnabled @map("ai_enabled")),
+-- então o Prisma Client referencia essa coluna em todo channel.create()/update().
+-- Porém nenhuma migração a criava — apenas conversations/organizations receberam
+-- ai_enabled em 20260502192048_ai_agents_foundation. Resultado: todo banco novo
+-- quebrava com "The column channels.ai_enabled does not exist" ao criar canal.
+--
+-- Semântica tri-state: NULL = segue org.aiEnabled, true = força ON, false = força OFF.
+-- Portanto: nullable, SEM default. IF NOT EXISTS mantém a migração idempotente
+-- (segura mesmo em bancos onde a coluna já foi adicionada manualmente como hotfix).
+ALTER TABLE "channels" ADD COLUMN IF NOT EXISTS "ai_enabled" BOOLEAN;
