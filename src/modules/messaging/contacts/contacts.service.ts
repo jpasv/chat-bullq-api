@@ -31,4 +31,15 @@ export class ContactsService {
     await this.findOne(id, organizationId);
     return this.repository.softDelete(id);
   }
+
+  async create(
+    organizationId: string,
+    input: { name?: string; phone: string; email?: string; channelId?: string },
+  ) {
+    if (input.channelId) {
+      const existing = await this.repository.findByChannelExternal(input.channelId, input.phone);
+      if (existing) return existing.contact;
+    }
+    return this.repository.createWithChannel(organizationId, input);
+  }
 }

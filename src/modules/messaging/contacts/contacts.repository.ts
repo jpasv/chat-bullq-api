@@ -65,4 +65,33 @@ export class ContactsRepository {
   async softDelete(id: string) {
     return this.prisma.contact.update({ where: { id }, data: { deletedAt: new Date() } });
   }
+
+  async findByChannelExternal(channelId: string, externalId: string) {
+    return this.prisma.contactChannel.findUnique({
+      where: { uq_contact_channel_external: { channelId, externalId } },
+      include: { contact: true },
+    });
+  }
+
+  async createWithChannel(
+    organizationId: string,
+    input: { name?: string; phone: string; email?: string; channelId?: string },
+  ) {
+    return this.prisma.contact.create({
+      data: {
+        organizationId,
+        name: input.name ?? null,
+        phone: input.phone,
+        email: input.email ?? null,
+        channels: input.channelId
+          ? { create: { channelId: input.channelId, externalId: input.phone, profileName: input.name ?? null } }
+          : undefined,
+      },
+      include: {
+        channels: { include: { channel: { select: { id: true, type: true, name: true } } } },
+        tags: { include: { tag: true } },
+        _count: { select: { conversations: true } },
+      },
+    });
+  }
 }
