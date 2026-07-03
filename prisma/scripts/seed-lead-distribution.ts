@@ -8,6 +8,8 @@
  *   - Automation "RN-04 · Atribuição → Coletando informações" (trigger
  *     CONVERSATION_ASSIGNED, só quando a conversa ainda não tinha assignee):
  *       troca a tag `Distribuir` por `Coletando informações`.
+ *   - Inbox view builtin "Distribuição" para cada membro OWNER/ADMIN da org:
+ *       lista conversas com tag `Distribuir` ainda não atribuídas.
  *
  * USAGE
  *   LEAD_ORG_ID=... npx ts-node prisma/scripts/seed-lead-distribution.ts
@@ -81,6 +83,42 @@ async function ensureAutomation(params: {
     },
   });
   return { id: created.id, created: true };
+}
+
+async function ensureDistributionView(
+  organizationId: string,
+  userId: string,
+  distribuirTagId: string,
+): Promise<void> {
+  const existing = await prisma.inboxView.findFirst({
+    where: { organizationId, userId, name: 'Distribuição' },
+  });
+
+  const filters: Prisma.InputJsonValue = { tagIds: [distribuirTagId], assignedTo: 'none' };
+  const metadata: Prisma.InputJsonValue = { builtin: true };
+
+  if (existing) {
+    await prisma.inboxView.update({
+      where: { id: existing.id },
+      data: { filters, metadata, icon: 'Filter', color: 'amber' },
+    });
+    console.log(`• Inbox view já existe (atualizada): Distribuição p/ ${userId}`);
+    return;
+  }
+
+  await prisma.inboxView.create({
+    data: {
+      organizationId,
+      userId,
+      name: 'Distribuição',
+      icon: 'Filter',
+      color: 'amber',
+      filters,
+      metadata,
+      order: 0,
+    },
+  });
+  console.log(`✓ Inbox view criada: Distribuição p/ ${userId}`);
 }
 
 async function main() {
@@ -164,6 +202,15 @@ async function main() {
   console.log(
     `${rn04.created ? '✓ Automation criada' : '• Automation atualizada'}: ${AUTOMATION_RN04_NAME} (${rn04.id})`,
   );
+
+  // ─── Inbox view "Distribuição" (OWNER/ADMIN) ──────────────
+  const admins = await prisma.userOrganization.findMany({
+    where: { organizationId, role: { in: ['OWNER', 'ADMIN'] } },
+    select: { userId: true },
+  });
+  for (const admin of admins) {
+    await ensureDistributionView(organizationId, admin.userId, distribuir.id);
+  }
 
   console.log('\nPronto. Lembrete manual (papéis dos membros da org):');
   console.log('  - Renata / gestor(a)  → ADMIN ou OWNER');
