@@ -1,8 +1,15 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { OrgRole } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/prisma.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
 import { MediaResolverService } from './media-resolver.service';
+import { resolveAssignmentScope } from '../conversations/conversation-scope';
 import axios from 'axios';
 
 export interface TranscriptionResult {
@@ -43,6 +50,8 @@ export class TranscriptionService {
     opts: {
       force?: boolean;
       access?: import('../../iam/channel-access/channel-access.service').ChannelAccess;
+      currentUserId?: string;
+      role?: OrgRole;
     } = {},
   ): Promise<TranscriptionResult> {
     const access = opts.access ?? 'ALL';
@@ -56,6 +65,13 @@ export class TranscriptionService {
     }
     if (access !== 'ALL' && !access.has(message.conversation.channelId)) {
       throw new BadRequestException('Message does not belong to organization');
+    }
+    if (
+      opts.currentUserId &&
+      resolveAssignmentScope(opts.role, opts.currentUserId) &&
+      message.conversation.assignedToId !== opts.currentUserId
+    ) {
+      throw new ForbiddenException();
     }
     if (message.type !== 'AUDIO') {
       throw new BadRequestException('Message is not an audio');

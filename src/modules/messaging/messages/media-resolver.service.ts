@@ -3,9 +3,12 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
+import { OrgRole } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
+import { resolveAssignmentScope } from '../conversations/conversation-scope';
 
 /**
  * Resolves a playable URL for an inbound media message.
@@ -29,6 +32,8 @@ export class MediaResolverService {
     messageId: string,
     organizationId: string,
     access: import('../../iam/channel-access/channel-access.service').ChannelAccess = 'ALL',
+    currentUserId?: string,
+    role?: OrgRole,
   ): Promise<{ url: string; mimeType?: string }> {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
@@ -43,6 +48,13 @@ export class MediaResolverService {
       !access.has(message.conversation.channelId)
     ) {
       throw new NotFoundException('Message not found');
+    }
+    if (
+      currentUserId &&
+      resolveAssignmentScope(role, currentUserId) &&
+      message.conversation.assignedToId !== currentUserId
+    ) {
+      throw new ForbiddenException();
     }
 
     const content = (message.content ?? {}) as Record<string, any>;

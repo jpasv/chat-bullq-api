@@ -23,8 +23,10 @@ import {
   CurrentUser,
   CurrentOrg,
   CurrentChannelAccess,
+  CurrentUserRole,
 } from '../../../common/decorators';
 import type { ChannelAccess } from '../../iam/channel-access/channel-access.service';
+import { OrgRole } from '@prisma/client';
 
 @ApiTags('Messages')
 @ApiBearerAuth()
@@ -100,9 +102,11 @@ export class MessagesController {
   async getMedia(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
-    return this.mediaResolver.resolve(id, orgId, access);
+    return this.mediaResolver.resolve(id, orgId, access, userId, role);
   }
 
   @Post(':id/transcribe')
@@ -113,12 +117,16 @@ export class MessagesController {
   transcribe(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
     @Query('force') force?: string,
   ) {
     return this.transcription.transcribe(id, orgId, {
       force: force === 'true' || force === '1',
       access,
+      currentUserId: userId,
+      role,
     });
   }
 
@@ -144,6 +152,8 @@ export class MessagesController {
   findByConversation(
     @Query('conversationId') conversationId: string,
     @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -154,6 +164,8 @@ export class MessagesController {
       parseInt(page || '1', 10),
       parseInt(limit || '50', 10),
       access,
+      userId,
+      role,
     );
   }
 }
