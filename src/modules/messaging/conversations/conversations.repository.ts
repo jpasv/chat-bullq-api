@@ -19,6 +19,12 @@ export interface InboxFilters {
   /** Tag ids applied to the conversation OR its contact. ANY match. */
   tagIds?: string[];
   assignedToId?: string;
+  /**
+   * Barreira de segurança: quando setado, força `assignedToId = este valor`
+   * independentemente do filtro opcional. Usado para escopar AGENTs às
+   * conversas atribuídas a eles. OWNER/ADMIN não recebem este campo.
+   */
+  enforceAssignedToId?: string;
   search?: string;
   accessibleChannelIds?: string[];
   /**
@@ -126,6 +132,10 @@ export class ConversationsRepository {
       ];
     }
     if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+    if (filters.enforceAssignedToId) {
+      // Precedência sobre o filtro opcional — barreira, não preferência.
+      where.assignedToId = filters.enforceAssignedToId;
+    }
     if (filters.stuckOnly) where.isStuck = true;
     if (filters.search) {
       where.OR = [
