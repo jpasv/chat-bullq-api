@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AutomationTrigger" ADD VALUE IF NOT EXISTS 'CONVERSATION_CREATED';
