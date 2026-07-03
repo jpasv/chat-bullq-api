@@ -568,9 +568,21 @@ export class ConversationsService {
     return updated;
   }
 
-  async getStatusCounts(organizationId: string, access: ChannelAccess = 'ALL') {
+  async getStatusCounts(
+    organizationId: string,
+    access: ChannelAccess = 'ALL',
+    currentUserId?: string,
+    role?: OrgRole,
+  ) {
     const accessibleIds = access === 'ALL' ? undefined : [...access];
-    return this.repository.countByStatus(organizationId, accessibleIds);
+    const enforceAssignedToId = currentUserId
+      ? resolveAssignmentScope(role, currentUserId)
+      : undefined;
+    return this.repository.countByStatus(
+      organizationId,
+      accessibleIds,
+      enforceAssignedToId,
+    );
   }
 
   /**

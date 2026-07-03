@@ -387,7 +387,16 @@ export class ConversationsRepository {
     return this.prisma.conversation.update({ where: { id }, data });
   }
 
-  async countByStatus(organizationId: string, accessibleChannelIds?: string[]) {
+  async countByStatus(
+    organizationId: string,
+    accessibleChannelIds?: string[],
+    /**
+     * Barreira de atribuição (RN-05): quando setado, conta apenas conversas
+     * atribuídas a este usuário. Usado para escopar AGENTs às próprias
+     * conversas — OWNER/ADMIN não recebem este valor (contam a org toda).
+     */
+    enforceAssignedToId?: string,
+  ) {
     if (accessibleChannelIds !== undefined && accessibleChannelIds.length === 0) {
       return {} as Record<string, number>;
     }
@@ -399,6 +408,7 @@ export class ConversationsRepository {
         ...(accessibleChannelIds !== undefined
           ? { channelId: { in: accessibleChannelIds } }
           : {}),
+        ...(enforceAssignedToId ? { assignedToId: enforceAssignedToId } : {}),
       },
       _count: true,
     });

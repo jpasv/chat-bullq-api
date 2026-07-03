@@ -174,8 +174,10 @@ export class ConversationsController {
   getCounts(
     @CurrentOrg('id') orgId: string,
     @CurrentChannelAccess() access: ChannelAccess,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
   ) {
-    return this.service.getStatusCounts(orgId, access);
+    return this.service.getStatusCounts(orgId, access, userId, role);
   }
 
   @Get(':id')
