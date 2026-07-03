@@ -98,6 +98,8 @@ export class PublicDashboardController {
     @Query('to') to?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.service.getTopTags(orgId, parseRange(from, to), limit ? parseInt(limit, 10) : 5);
+    // Public API usa credencial de org (API key), sem usuário/AGENT — métricas
+    // ficam org-wide (assignedToId undefined). Passa undefined p/ o escopo.
+    return this.service.getTopTags(orgId, parseRange(from, to), undefined, limit ? parseInt(limit, 10) : 5);
   }
 }
