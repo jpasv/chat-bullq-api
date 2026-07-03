@@ -17,7 +17,10 @@ RUN npx prisma generate
 RUN yarn build
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl curl tini
+# ffmpeg is required at runtime to transcode audio: outbound voice notes
+# (WebM/Opus → OGG/Opus for WhatsApp) and the cross-browser playback rendition
+# (OGG/Opus → AAC/M4A, since Safari/iOS can't decode Opus).
+RUN apk add --no-cache openssl curl tini ffmpeg
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001

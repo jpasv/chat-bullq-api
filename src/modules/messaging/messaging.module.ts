@@ -23,6 +23,8 @@ import { MessagesRepository } from './messages/messages.repository';
 import { TranscriptionService } from './messages/transcription.service';
 import { UploadsService } from './messages/uploads.service';
 import { MediaResolverService } from './messages/media-resolver.service';
+import { AudioSourceService } from './messages/audio-source.service';
+import { PlaybackService } from './messages/playback.service';
 import { ContactsController } from './contacts/contacts.controller';
 import { ContactsService } from './contacts/contacts.service';
 import { ContactsRepository } from './contacts/contacts.repository';
@@ -58,6 +60,8 @@ import { ContactsRepository } from './contacts/contacts.repository';
     TranscriptionService,
     UploadsService,
     MediaResolverService,
+    AudioSourceService,
+    PlaybackService,
     ContactsService,
     ContactsRepository,
   ],

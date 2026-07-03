@@ -256,6 +256,72 @@ export class UploadsService {
     return { url, mimeType: finalMime, size: finalSize, filename: finalName };
   }
 
+  /**
+   * Produces a browser-universal playback rendition (AAC in an MP4/M4A
+   * container) of an audio message and caches it under uploads/playback/{id}.m4a.
+   *
+   * Why: WhatsApp voice notes — both the ones we send (transcoded to OGG/Opus)
+   * and the ones customers send — are OGG/Opus, which Safari/iOS cannot decode
+   * (the <audio> element loads the header but stays silent). AAC/M4A plays on
+   * every browser, so the panel points its player at this instead of the OGG.
+   *
+   * Idempotent: returns the cached file if it already exists, so callers can
+   * safely hit this on every "play" without re-encoding.
+   */
+  async transcodeToPlayback(
+    id: string,
+    src: { buffer: Buffer; mimeType?: string },
+  ): Promise<UploadResult> {
+    const dir = path.join(this.rootDir, 'playback');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const outPath = path.join(dir, `${safeId}.m4a`);
+    const url = `${this.publicBaseUrl}/playback/${safeId}.m4a`;
+
+    if (fs.existsSync(outPath)) {
+      const size = (await fs.promises.stat(outPath)).size;
+      return { url, mimeType: 'audio/mp4', size, filename: `${safeId}.m4a` };
+    }
+
+    if (!src?.buffer?.byteLength) {
+      throw new BadRequestException('Empty audio source for playback');
+    }
+
+    const srcExt = this.extFor(src.mimeType || 'audio/ogg');
+    const tmpPath = path.join(dir, `${safeId}.src${srcExt}`);
+    await fs.promises.writeFile(tmpPath, src.buffer);
+    try {
+      // -movflags +faststart moves the moov atom to the front so <audio> can
+      // begin playing before the whole file downloads.
+      await execFileAsync(
+        'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel', 'error',
+          '-y',
+          '-i', tmpPath,
+          '-vn',
+          '-c:a', 'aac',
+          '-b:a', '96k',
+          '-ar', '44100',
+          '-movflags', '+faststart',
+          outPath,
+        ],
+        { timeout: 60_000 },
+      );
+    } catch (err: any) {
+      this.logger.error(`ffmpeg playback transcode failed: ${err.message}`);
+      throw new BadRequestException('Failed to process audio for playback');
+    } finally {
+      await fs.promises.unlink(tmpPath).catch(() => undefined);
+    }
+
+    const size = (await fs.promises.stat(outPath)).size;
+    this.logger.log(`Playback transcode: ${outPath} -> ${url}`);
+    return { url, mimeType: 'audio/mp4', size, filename: `${safeId}.m4a` };
+  }
+
   private extFor(mime: string, originalFilename?: string | null): string {
     // Prefer the extension from the provider-given filename when present —
     // it survives mime-sniffing oddities (e.g., Meta sometimes returns

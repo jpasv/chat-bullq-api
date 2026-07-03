@@ -17,6 +17,7 @@ import { MessagesService } from './messages.service';
 import { TranscriptionService } from './transcription.service';
 import { UploadsService } from './uploads.service';
 import { MediaResolverService } from './media-resolver.service';
+import { PlaybackService } from './playback.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { JwtAuthGuard, OrgGuard, RolesGuard } from '../../../common/guards';
 import {
@@ -38,6 +39,7 @@ export class MessagesController {
     private readonly transcription: TranscriptionService,
     private readonly uploads: UploadsService,
     private readonly mediaResolver: MediaResolverService,
+    private readonly playback: PlaybackService,
   ) {}
 
   @Post()
@@ -107,6 +109,23 @@ export class MessagesController {
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
     return this.mediaResolver.resolve(id, orgId, access, userId, role);
+  }
+
+  @Get(':id/playback')
+  @ApiOperation({
+    summary:
+      'Resolve a cross-browser (AAC/M4A) playback URL for an audio message. ' +
+      'Transcodes from OGG/Opus on first call (Safari/iOS cannot decode Opus) ' +
+      'and caches the result.',
+  })
+  getPlayback(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.playback.getPlaybackUrl(id, orgId, access, userId, role);
   }
 
   @Post(':id/transcribe')
