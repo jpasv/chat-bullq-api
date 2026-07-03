@@ -10,9 +10,11 @@ import { DashboardModule } from '../dashboard/dashboard.module';
 import { AuthModule } from '../auth/auth.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { ChannelHubModule } from '../channel-hub/channel-hub.module';
+import { WebhooksModule } from '../webhooks/webhooks.module';
+import { PublicWebhooksController } from '../webhooks/public-webhooks.controller';
 
 @Module({
-  imports: [AuthModule, DashboardModule, MessagingModule, ChannelHubModule],
+  imports: [AuthModule, DashboardModule, MessagingModule, ChannelHubModule, WebhooksModule],
   controllers: [
     PublicMeController,
     PublicDashboardController,
@@ -20,6 +22,7 @@ import { ChannelHubModule } from '../channel-hub/channel-hub.module';
     PublicChannelsController,
     PublicConversationsController,
     PublicMessagesController,
+    PublicWebhooksController,
   ],
   providers: [ApiKeyThrottleGuard],
 })

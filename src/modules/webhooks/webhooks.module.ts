@@ -6,6 +6,7 @@ import { WEBHOOK_QUEUE } from './webhooks.constants';
 import { WebhookSubscriptionsService } from './webhook-subscriptions.service';
 import { WebhookDispatchService } from './webhook-dispatch.service';
 import { WebhookDeliveryProcessor } from './webhook-delivery.processor';
+import { WebhooksController } from './webhooks.controller';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { WebhookDeliveryProcessor } from './webhook-delivery.processor';
     NotificationsModule,
     BullModule.registerQueue({ name: WEBHOOK_QUEUE }),
   ],
+  controllers: [WebhooksController],
   providers: [WebhookSubscriptionsService, WebhookDispatchService, WebhookDeliveryProcessor],
   exports: [WebhookSubscriptionsService, WebhookDispatchService],
 })
