@@ -5,8 +5,9 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { Conversation, ConversationStatus } from '@prisma/client';
+import { Conversation, ConversationStatus, OrgRole } from '@prisma/client';
 import { ConversationsRepository, InboxFilters } from './conversations.repository';
+import { resolveAssignmentScope } from './conversation-scope';
 import { ConversationFsmService } from './conversation-fsm.service';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
@@ -110,6 +111,7 @@ export class ConversationsService {
     limit: number,
     access: ChannelAccess = 'ALL',
     currentUserId?: string,
+    role?: OrgRole,
   ) {
     const validStatuses = new Set(Object.values(ConversationStatus));
     const parsedStatuses = filters.status
@@ -165,6 +167,9 @@ export class ConversationsService {
       kind: isGroupResolved ? 'GROUP' : filters.kind,
       tagIds: filters.tagIds,
       assignedToId: filters.assignedToId,
+      enforceAssignedToId: currentUserId
+        ? resolveAssignmentScope(role, currentUserId)
+        : undefined,
       search: filters.search,
       accessibleChannelIds: access === 'ALL' ? undefined : [...access],
       archived: filters.archived,
@@ -188,13 +193,26 @@ export class ConversationsService {
     };
   }
 
-  async findOne(id: string, organizationId: string, access: ChannelAccess = 'ALL') {
+  async findOne(
+    id: string,
+    organizationId: string,
+    access: ChannelAccess = 'ALL',
+    currentUserId?: string,
+    role?: OrgRole,
+  ) {
     const conversation = await this.repository.findById(id);
     if (!conversation) throw new NotFoundException('Conversation not found');
     if (conversation.organizationId !== organizationId) {
       throw new ForbiddenException();
     }
     this.channelAccess.assertChannelAccess(access, conversation.channelId);
+    if (
+      currentUserId &&
+      resolveAssignmentScope(role, currentUserId) &&
+      conversation.assignedToId !== currentUserId
+    ) {
+      throw new ForbiddenException();
+    }
     await this.attachProjects(organizationId, [conversation as any]);
     return conversation;
   }
