@@ -18,6 +18,7 @@ import {
   CurrentUser,
   CurrentOrg,
   CurrentChannelAccess,
+  CurrentUserRole,
   Roles,
 } from '../../../common/decorators';
 import type { ChannelAccess } from '../../iam/channel-access/channel-access.service';
@@ -59,10 +60,21 @@ export class ConversationsController {
     description:
       'CSV de IDs de tags. OR — devolve conversas que tenham QUALQUER uma das tags (na conversa OU no contato).',
   })
+  @ApiQuery({
+    name: 'dateFrom',
+    required: false,
+    description: 'ISO date; filtra por última atividade (lastMessageAt) >=',
+  })
+  @ApiQuery({
+    name: 'dateTo',
+    required: false,
+    description: 'ISO date; filtra por última atividade (lastMessageAt) <=',
+  })
   findInbox(
     @CurrentOrg('id') orgId: string,
     @CurrentUser('id') userId: string,
     @CurrentChannelAccess() access: ChannelAccess,
+    @CurrentUserRole() role: OrgRole,
     @Query('status') status?: string,
     @Query('channelId') channelId?: string,
     @Query('assignedToId') assignedToId?: string,
@@ -78,6 +90,8 @@ export class ConversationsController {
     @Query('hoppeId') hoppeId?: string,
     @Query('responsibleUserId') responsibleUserId?: string,
     @Query('projectStatus') projectStatus?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     const archivedScope =
       archived === 'only' || archived === 'any' ? archived : 'exclude';
@@ -107,11 +121,14 @@ export class ConversationsController {
         hoppeId: hoppeId || undefined,
         responsibleUserId: responsibleUserId || undefined,
         projectStatus: projectStatus || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
       },
       parseInt(page || '1', 10),
       parseInt(limit || '20', 10),
       access,
       userId,
+      role,
     );
   }
 
@@ -135,6 +152,34 @@ export class ConversationsController {
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
     return this.service.setArchived(id, orgId, false, userId, access);
+  }
+
+  @Post(':id/waiting')
+  @ApiOperation({
+    summary:
+      'Colocar no "Esperando" — marca a conversa como aguardando resposta humana (awaitingHumanReply=true).',
+  })
+  markWaiting(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.setWaiting(id, orgId, true, userId, access);
+  }
+
+  @Post(':id/unwaiting')
+  @ApiOperation({
+    summary:
+      'Retirar do "Esperando" — remove a marca de aguardando resposta humana (awaitingHumanReply=false).',
+  })
+  unmarkWaiting(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.setWaiting(id, orgId, false, userId, access);
   }
 
   @Post(':id/read')
@@ -171,8 +216,10 @@ export class ConversationsController {
   getCounts(
     @CurrentOrg('id') orgId: string,
     @CurrentChannelAccess() access: ChannelAccess,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
   ) {
-    return this.service.getStatusCounts(orgId, access);
+    return this.service.getStatusCounts(orgId, access, userId, role);
   }
 
   @Get(':id')
@@ -181,8 +228,10 @@ export class ConversationsController {
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @CurrentChannelAccess() access: ChannelAccess,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
   ) {
-    return this.service.findOne(id, orgId, access);
+    return this.service.findOne(id, orgId, access, userId, role);
   }
 
   @Patch(':id')

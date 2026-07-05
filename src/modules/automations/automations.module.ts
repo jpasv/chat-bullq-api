@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from '../../database/prisma.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { WebhooksModule } from '../webhooks/webhooks.module';
 import { OutboxService } from './outbox/outbox.service';
 import { OutboxPollerService } from './outbox/outbox-poller.service';
 import { AutomationEventProcessor } from './workers/automation-event.processor';
@@ -27,6 +28,7 @@ import { AUTOMATION_QUEUE } from './automations.constants';
   imports: [
     PrismaModule,
     RealtimeModule,
+    WebhooksModule,
     BullModule.registerQueue(
       { name: AUTOMATION_QUEUE },
       // send_message uses the existing outbound queue. Registering it

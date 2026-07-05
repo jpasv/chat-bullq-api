@@ -19,6 +19,12 @@ export interface InboxFilters {
   /** Tag ids applied to the conversation OR its contact. ANY match. */
   tagIds?: string[];
   assignedToId?: string;
+  /**
+   * Barreira de segurança: quando setado, força `assignedToId = este valor`
+   * independentemente do filtro opcional. Usado para escopar AGENTs às
+   * conversas atribuídas a eles. OWNER/ADMIN não recebem este campo.
+   */
+  enforceAssignedToId?: string;
   search?: string;
   accessibleChannelIds?: string[];
   /**
@@ -40,6 +46,9 @@ export interface InboxFilters {
    * filtro/widget do dashboard.
    */
   stuckOnly?: boolean;
+  /** Inclusive bounds on lastMessageAt (last activity). Dates already parsed. */
+  dateFrom?: Date;
+  dateTo?: Date;
 }
 
 @Injectable()
@@ -126,7 +135,17 @@ export class ConversationsRepository {
       ];
     }
     if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+    if (filters.enforceAssignedToId) {
+      // Precedência sobre o filtro opcional — barreira, não preferência.
+      where.assignedToId = filters.enforceAssignedToId;
+    }
     if (filters.stuckOnly) where.isStuck = true;
+    if (filters.dateFrom || filters.dateTo) {
+      where.lastMessageAt = {
+        ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
+        ...(filters.dateTo ? { lte: filters.dateTo } : {}),
+      };
+    }
     if (filters.search) {
       where.OR = [
         { contact: { name: { contains: filters.search, mode: 'insensitive' } } },
@@ -377,7 +396,16 @@ export class ConversationsRepository {
     return this.prisma.conversation.update({ where: { id }, data });
   }
 
-  async countByStatus(organizationId: string, accessibleChannelIds?: string[]) {
+  async countByStatus(
+    organizationId: string,
+    accessibleChannelIds?: string[],
+    /**
+     * Barreira de atribuição (RN-05): quando setado, conta apenas conversas
+     * atribuídas a este usuário. Usado para escopar AGENTs às próprias
+     * conversas — OWNER/ADMIN não recebem este valor (contam a org toda).
+     */
+    enforceAssignedToId?: string,
+  ) {
     if (accessibleChannelIds !== undefined && accessibleChannelIds.length === 0) {
       return {} as Record<string, number>;
     }
@@ -389,6 +417,7 @@ export class ConversationsRepository {
         ...(accessibleChannelIds !== undefined
           ? { channelId: { in: accessibleChannelIds } }
           : {}),
+        ...(enforceAssignedToId ? { assignedToId: enforceAssignedToId } : {}),
       },
       _count: true,
     });

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConversationStatus } from '@prisma/client';
+import { AutomationTrigger, ConversationStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { OutboxService } from '../../automations/outbox/outbox.service';
 import { IdempotencyService } from './idempotency.service';
 
 export interface ResolvedConversation {
@@ -24,6 +25,7 @@ export class ConversationResolverService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly idempotency: IdempotencyService,
+    private readonly outbox: OutboxService,
   ) {}
 
   async resolve(
@@ -85,22 +87,33 @@ export class ConversationResolverService {
         }
 
         const protocol = this.generateProtocol();
-        const conversation = await this.prisma.conversation.create({
-          data: {
+        // Cria a conversa, o audit log e enfileira o evento CONVERSATION_CREATED
+        // na MESMA transação: o evento só "existe" se a criação commitar.
+        const conversation = await this.prisma.$transaction(async (tx) => {
+          const created = await tx.conversation.create({
+            data: {
+              organizationId,
+              channelId,
+              contactId,
+              status: ConversationStatus.PENDING,
+              protocol,
+              isGroup: isGroup || false,
+            },
+          });
+          await tx.conversationAuditLog.create({
+            data: {
+              conversationId: created.id,
+              action: 'CREATED',
+              toValue: ConversationStatus.PENDING,
+            },
+          });
+          await this.outbox.enqueue(tx, AutomationTrigger.CONVERSATION_CREATED, {
             organizationId,
-            channelId,
             contactId,
-            status: ConversationStatus.PENDING,
-            protocol,
-            isGroup: isGroup || false,
-          },
-        });
-        await this.prisma.conversationAuditLog.create({
-          data: {
-            conversationId: conversation.id,
-            action: 'CREATED',
-            toValue: ConversationStatus.PENDING,
-          },
+            conversationId: created.id,
+            channelId,
+          });
+          return created;
         });
         this.logger.log(
           `New conversation created: ${conversation.id} (protocol: ${protocol})`,

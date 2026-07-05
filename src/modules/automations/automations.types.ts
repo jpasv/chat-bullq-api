@@ -62,12 +62,18 @@ export interface ConversationAssignedPayload extends BaseEventPayload {
   toAssigneeId: string;
 }
 
+export interface ConversationCreatedPayload extends BaseEventPayload {
+  conversationId: string;
+  channelId: string;
+}
+
 export type AutomationEventPayload =
   | TagAddedPayload
   | TagRemovedPayload
   | MessageReceivedPayload
   | ConversationStatusChangedPayload
-  | ConversationAssignedPayload;
+  | ConversationAssignedPayload
+  | ConversationCreatedPayload;
 
 // Discriminated union by trigger — used by the listener factory and by
 // tests to construct events with the correct payload shape.
@@ -77,6 +83,7 @@ export type TriggerToPayload = {
   [AutomationTrigger.MESSAGE_RECEIVED]: MessageReceivedPayload;
   [AutomationTrigger.CONVERSATION_STATUS_CHANGED]: ConversationStatusChangedPayload;
   [AutomationTrigger.CONVERSATION_ASSIGNED]: ConversationAssignedPayload;
+  [AutomationTrigger.CONVERSATION_CREATED]: ConversationCreatedPayload;
 };
 
 // ─── BullMQ job shape ────────────────────────────────────────────────

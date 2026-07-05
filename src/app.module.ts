@@ -25,6 +25,7 @@ import { SegmentsModule } from './modules/segments/segments.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SalesRecoveryModule } from './modules/sales-recovery/sales-recovery.module';
 import { AutomationsModule } from './modules/automations/automations.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
 // ProductsModule removido — catálogo agora vive no Trivapp e é consumido
 // via skill HTTP getProductPitch + CatalogSyncService. Tabela `products`
 // fica órfã no DB (cleanup futuro). Não importar aqui.
@@ -69,6 +70,7 @@ import redisConfig from './config/redis.config';
     SegmentsModule,
     ProjectsModule,
     SalesRecoveryModule,
+    WebhooksModule,
   ],
 })
 export class AppModule {}

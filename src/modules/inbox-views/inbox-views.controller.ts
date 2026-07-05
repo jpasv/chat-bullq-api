@@ -21,8 +21,10 @@ import {
   CurrentChannelAccess,
   CurrentOrg,
   CurrentUser,
+  CurrentUserRole,
 } from '../../common/decorators';
 import type { ChannelAccess } from '../iam/channel-access/channel-access.service';
+import { OrgRole } from '@prisma/client';
 
 @ApiTags('Inbox Views')
 @ApiBearerAuth()
@@ -90,6 +92,7 @@ export class InboxViewsController {
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -101,6 +104,8 @@ export class InboxViewsController {
     @Query('tagIds') tagIds?: string,
     @Query('assignedToId') assignedToId?: string,
     @Query('stuck') stuck?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.service.findConversations(
       id,
@@ -118,7 +123,10 @@ export class InboxViewsController {
         tagIds,
         assignedToId,
         stuck,
+        dateFrom,
+        dateTo,
       },
+      role,
     );
   }
 }

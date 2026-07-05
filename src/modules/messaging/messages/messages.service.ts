@@ -11,6 +11,7 @@ import {
   MessageDirection,
   MessageContentType,
   MessageStatus,
+  OrgRole,
 } from '@prisma/client';
 import { MessagesRepository } from './messages.repository';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -23,6 +24,7 @@ import {
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
 import { SegmentReadService } from '../../segments/segment-read.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
+import { resolveAssignmentScope } from '../conversations/conversation-scope';
 
 @Injectable()
 export class MessagesService {
@@ -446,6 +448,8 @@ export class MessagesService {
     page: number,
     limit: number,
     access: ChannelAccess = 'ALL',
+    currentUserId?: string,
+    role?: OrgRole,
   ) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -455,6 +459,13 @@ export class MessagesService {
       throw new ForbiddenException();
     }
     this.channelAccess.assertChannelAccess(access, conversation.channelId);
+    if (
+      currentUserId &&
+      resolveAssignmentScope(role, currentUserId) &&
+      conversation.assignedToId !== currentUserId
+    ) {
+      throw new ForbiddenException();
+    }
 
     const skip = (page - 1) * limit;
     // Grupo de segmento: une as mensagens das conversas-irmãs (mesmo grupo nos

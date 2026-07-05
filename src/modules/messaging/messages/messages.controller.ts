@@ -17,14 +17,17 @@ import { MessagesService } from './messages.service';
 import { TranscriptionService } from './transcription.service';
 import { UploadsService } from './uploads.service';
 import { MediaResolverService } from './media-resolver.service';
+import { PlaybackService } from './playback.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { JwtAuthGuard, OrgGuard, RolesGuard } from '../../../common/guards';
 import {
   CurrentUser,
   CurrentOrg,
   CurrentChannelAccess,
+  CurrentUserRole,
 } from '../../../common/decorators';
 import type { ChannelAccess } from '../../iam/channel-access/channel-access.service';
+import { OrgRole } from '@prisma/client';
 
 @ApiTags('Messages')
 @ApiBearerAuth()
@@ -36,6 +39,7 @@ export class MessagesController {
     private readonly transcription: TranscriptionService,
     private readonly uploads: UploadsService,
     private readonly mediaResolver: MediaResolverService,
+    private readonly playback: PlaybackService,
   ) {}
 
   @Post()
@@ -100,9 +104,28 @@ export class MessagesController {
   async getMedia(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
-    return this.mediaResolver.resolve(id, orgId, access);
+    return this.mediaResolver.resolve(id, orgId, access, userId, role);
+  }
+
+  @Get(':id/playback')
+  @ApiOperation({
+    summary:
+      'Resolve a cross-browser (AAC/M4A) playback URL for an audio message. ' +
+      'Transcodes from OGG/Opus on first call (Safari/iOS cannot decode Opus) ' +
+      'and caches the result.',
+  })
+  getPlayback(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.playback.getPlaybackUrl(id, orgId, access, userId, role);
   }
 
   @Post(':id/transcribe')
@@ -113,12 +136,16 @@ export class MessagesController {
   transcribe(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
     @Query('force') force?: string,
   ) {
     return this.transcription.transcribe(id, orgId, {
       force: force === 'true' || force === '1',
       access,
+      currentUserId: userId,
+      role,
     });
   }
 
@@ -144,6 +171,8 @@ export class MessagesController {
   findByConversation(
     @Query('conversationId') conversationId: string,
     @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUserRole() role: OrgRole,
     @CurrentChannelAccess() access: ChannelAccess,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -154,6 +183,8 @@ export class MessagesController {
       parseInt(page || '1', 10),
       parseInt(limit || '50', 10),
       access,
+      userId,
+      role,
     );
   }
 }

@@ -144,6 +144,10 @@ export class OutboxService {
       case AutomationTrigger.CONVERSATION_ASSIGNED: {
         return null;
       }
+      case AutomationTrigger.CONVERSATION_CREATED: {
+        const p = payload as TriggerToPayload[typeof AutomationTrigger.CONVERSATION_CREATED];
+        return `CONVERSATION_CREATED:${p.conversationId}`;
+      }
     }
     return null;
   }

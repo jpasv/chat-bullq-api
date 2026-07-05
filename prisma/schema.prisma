@@ -198,6 +198,7 @@ model Organization {
   products      Product[]
   segments      Segment[]
   projects      Project[]
+  webhookSubscriptions WebhookSubscription[]
 
   @@map("organizations")
 }
@@ -1555,6 +1556,7 @@ enum AutomationTrigger {
   MESSAGE_RECEIVED
   CONVERSATION_STATUS_CHANGED
   CONVERSATION_ASSIGNED
+  CONVERSATION_CREATED
 }
 
 enum AutomationRunStatus {
@@ -1693,4 +1695,53 @@ model AutomationRun {
   @@index([traceId], name: "idx_run_trace")
   @@index([status, startedAt(sort: Desc)], name: "idx_run_status_time")
   @@map("automation_runs")
+}
+
+// ─── Webhooks ────────────────────────────────────
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  DLQ
+}
+
+model WebhookSubscription {
+  id                  String    @id @default(cuid())
+  organizationId      String    @map("organization_id")
+  url                 String
+  secret              String
+  events              AutomationTrigger[]
+  isActive            Boolean   @default(true) @map("is_active")
+  description         String?
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+  disabledAt          DateTime? @map("disabled_at")
+  createdById         String?   @map("created_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveries   WebhookDelivery[]
+
+  @@index([organizationId, isActive], name: "idx_websub_org_active")
+  @@map("webhook_subscriptions")
+}
+
+model WebhookDelivery {
+  id             String                @id @default(cuid())
+  subscriptionId String                @map("subscription_id")
+  outboxEventId  String?               @map("outbox_event_id")
+  type           String
+  payload        Json
+  status         WebhookDeliveryStatus @default(PENDING)
+  attemptCount   Int                   @default(0) @map("attempt_count")
+  responseStatus Int?                  @map("response_status")
+  lastError      String?               @map("last_error") @db.Text
+  createdAt      DateTime              @default(now()) @map("created_at")
+  deliveredAt    DateTime?             @map("delivered_at")
+
+  subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, createdAt(sort: Desc)], name: "idx_delivery_sub_time")
+  @@map("webhook_deliveries")
 }

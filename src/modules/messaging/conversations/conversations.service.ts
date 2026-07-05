@@ -5,8 +5,9 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { Conversation, ConversationStatus } from '@prisma/client';
+import { Conversation, ConversationStatus, OrgRole } from '@prisma/client';
 import { ConversationsRepository, InboxFilters } from './conversations.repository';
+import { resolveAssignmentScope } from './conversation-scope';
 import { ConversationFsmService } from './conversation-fsm.service';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
@@ -25,6 +26,12 @@ import { deriveGroupJid } from '../../segments/group-jid.util';
 
 const SYNC_MESSAGE_PAGE_SIZE = 50;
 const SYNC_MAX_PAGES = 4;
+
+function parseDate(v?: string): Date | undefined {
+  if (!v) return undefined;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? undefined : d;
+}
 
 @Injectable()
 export class ConversationsService {
@@ -105,11 +112,14 @@ export class ConversationsService {
       hoppeId?: string;
       responsibleUserId?: string;
       projectStatus?: string;
+      dateFrom?: string;
+      dateTo?: string;
     },
     page: number,
     limit: number,
     access: ChannelAccess = 'ALL',
     currentUserId?: string,
+    role?: OrgRole,
   ) {
     const validStatuses = new Set(Object.values(ConversationStatus));
     const parsedStatuses = filters.status
@@ -165,11 +175,16 @@ export class ConversationsService {
       kind: isGroupResolved ? 'GROUP' : filters.kind,
       tagIds: filters.tagIds,
       assignedToId: filters.assignedToId,
+      enforceAssignedToId: currentUserId
+        ? resolveAssignmentScope(role, currentUserId)
+        : undefined,
       search: filters.search,
       accessibleChannelIds: access === 'ALL' ? undefined : [...access],
       archived: filters.archived,
       unreadOnly: filters.unreadOnly,
       stuckOnly: filters.stuckOnly,
+      dateFrom: parseDate(filters.dateFrom),
+      dateTo: parseDate(filters.dateTo),
     };
 
     const skip = (page - 1) * limit;
@@ -188,13 +203,26 @@ export class ConversationsService {
     };
   }
 
-  async findOne(id: string, organizationId: string, access: ChannelAccess = 'ALL') {
+  async findOne(
+    id: string,
+    organizationId: string,
+    access: ChannelAccess = 'ALL',
+    currentUserId?: string,
+    role?: OrgRole,
+  ) {
     const conversation = await this.repository.findById(id);
     if (!conversation) throw new NotFoundException('Conversation not found');
     if (conversation.organizationId !== organizationId) {
       throw new ForbiddenException();
     }
     this.channelAccess.assertChannelAccess(access, conversation.channelId);
+    if (
+      currentUserId &&
+      resolveAssignmentScope(role, currentUserId) &&
+      conversation.assignedToId !== currentUserId
+    ) {
+      throw new ForbiddenException();
+    }
     await this.attachProjects(organizationId, [conversation as any]);
     return conversation;
   }
@@ -537,6 +565,39 @@ export class ConversationsService {
     return updated;
   }
 
+  /**
+   * Move a conversa entre as abas "Esperando" e "Caixa de entrada" manualmente.
+   * A aba Esperando é derivada do flag `awaitingHumanReply` (true = cliente
+   * aguardando resposta humana). Normalmente o flag é ligado por uma inbound
+   * e desligado quando um operador responde — este método é o override manual
+   * pedido pela equipe (menu de contexto: "Colocar/Retirar do esperando").
+   */
+  async setWaiting(
+    id: string,
+    organizationId: string,
+    waiting: boolean,
+    actorId: string,
+    access: ChannelAccess = 'ALL',
+  ) {
+    await this.findOne(id, organizationId, access);
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: { awaitingHumanReply: waiting },
+    });
+
+    await this.prisma.conversationAuditLog.create({
+      data: {
+        conversationId: id,
+        actorId,
+        action: waiting ? 'MARKED_WAITING' : 'UNMARKED_WAITING',
+        metadata: {},
+      },
+    });
+
+    this.broadcastUpdate(updated as Conversation);
+    return updated;
+  }
+
   async assignToMe(
     id: string,
     organizationId: string,
@@ -550,9 +611,21 @@ export class ConversationsService {
     return updated;
   }
 
-  async getStatusCounts(organizationId: string, access: ChannelAccess = 'ALL') {
+  async getStatusCounts(
+    organizationId: string,
+    access: ChannelAccess = 'ALL',
+    currentUserId?: string,
+    role?: OrgRole,
+  ) {
     const accessibleIds = access === 'ALL' ? undefined : [...access];
-    return this.repository.countByStatus(organizationId, accessibleIds);
+    const enforceAssignedToId = currentUserId
+      ? resolveAssignmentScope(role, currentUserId)
+      : undefined;
+    return this.repository.countByStatus(
+      organizationId,
+      accessibleIds,
+      enforceAssignedToId,
+    );
   }
 
   /**

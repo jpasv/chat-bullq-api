@@ -1,8 +1,14 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { OrgRole } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/prisma.service';
-import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
-import { MediaResolverService } from './media-resolver.service';
+import { AudioSourceService } from './audio-source.service';
+import { resolveAssignmentScope } from '../conversations/conversation-scope';
 import axios from 'axios';
 
 export interface TranscriptionResult {
@@ -33,8 +39,7 @@ export class TranscriptionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly adapterRegistry: ChannelAdapterRegistry,
-    private readonly mediaResolver: MediaResolverService,
+    private readonly audioSource: AudioSourceService,
   ) {}
 
   async transcribe(
@@ -43,6 +48,8 @@ export class TranscriptionService {
     opts: {
       force?: boolean;
       access?: import('../../iam/channel-access/channel-access.service').ChannelAccess;
+      currentUserId?: string;
+      role?: OrgRole;
     } = {},
   ): Promise<TranscriptionResult> {
     const access = opts.access ?? 'ALL';
@@ -56,6 +63,13 @@ export class TranscriptionService {
     }
     if (access !== 'ALL' && !access.has(message.conversation.channelId)) {
       throw new BadRequestException('Message does not belong to organization');
+    }
+    if (
+      opts.currentUserId &&
+      resolveAssignmentScope(opts.role, opts.currentUserId) &&
+      message.conversation.assignedToId !== opts.currentUserId
+    ) {
+      throw new ForbiddenException();
     }
     if (message.type !== 'AUDIO') {
       throw new BadRequestException('Message is not an audio');
@@ -73,7 +87,7 @@ export class TranscriptionService {
       );
     }
 
-    const audio = await this.downloadAudio(message);
+    const audio = await this.audioSource.resolveBytes(message);
     if (audio.buffer.byteLength > TranscriptionService.MAX_BYTES) {
       throw new BadRequestException(
         `Audio too large (${Math.round(audio.buffer.byteLength / 1024 / 1024)}MB > 25MB)`,
@@ -132,66 +146,5 @@ export class TranscriptionService {
     });
 
     return result;
-  }
-
-  /**
-   * Resolves the audio bytes for a message, regardless of channel.
-   * - Zappfy (WhatsApp): webhook only carries an encrypted .enc URL; the
-   *   resolver hits /message/download to get a playable URL and caches it.
-   * - Instagram: webhook already carries a playable CDN URL.
-   * - WA Official: mediaId is resolved to a URL via Graph API first.
-   */
-  private async downloadAudio(message: {
-    id: string;
-    content: any;
-    conversation: { organizationId: string; channel: any };
-  }): Promise<{ buffer: Buffer; mimeType?: string; filename: string }> {
-    const channel = message.conversation.channel;
-    const content = (message.content ?? {}) as Record<string, any>;
-    const mediaId: string | undefined = content.mediaId;
-    let mediaUrl: string | undefined = content.mediaUrl;
-    let mimeType: string | undefined = content.mimeType;
-
-    if (!mediaUrl && !mediaId) {
-      // Resolver will hit the provider (Uazapi's /message/download etc.),
-      // cache the URL on content.mediaUrl, and return it. Subsequent calls
-      // skip the provider roundtrip.
-      const resolved = await this.mediaResolver.resolve(
-        message.id,
-        message.conversation.organizationId,
-      );
-      mediaUrl = resolved.url;
-      mimeType = mimeType || resolved.mimeType;
-    }
-
-    const adapter = this.adapterRegistry.getOutbound(channel.type);
-
-    let buffer: Buffer;
-    if (mediaId && !mediaUrl) {
-      buffer = await adapter.downloadMedia(channel, mediaId);
-    } else {
-      try {
-        buffer = await adapter.downloadMedia(channel, mediaUrl!);
-      } catch {
-        const response = await axios.get(mediaUrl!, {
-          responseType: 'arraybuffer',
-          timeout: 60_000,
-        });
-        buffer = Buffer.from(response.data);
-      }
-    }
-
-    const filename = this.filenameFor(mimeType);
-    return { buffer, mimeType, filename };
-  }
-
-  private filenameFor(mimeType?: string): string {
-    if (!mimeType) return 'audio.mp3';
-    if (mimeType.includes('ogg')) return 'audio.ogg';
-    if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'audio.mp3';
-    if (mimeType.includes('wav')) return 'audio.wav';
-    if (mimeType.includes('m4a') || mimeType.includes('mp4')) return 'audio.m4a';
-    if (mimeType.includes('webm')) return 'audio.webm';
-    return 'audio.mp3';
   }
 }
