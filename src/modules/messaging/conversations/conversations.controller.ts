@@ -154,6 +154,34 @@ export class ConversationsController {
     return this.service.setArchived(id, orgId, false, userId, access);
   }
 
+  @Post(':id/waiting')
+  @ApiOperation({
+    summary:
+      'Colocar no "Esperando" — marca a conversa como aguardando resposta humana (awaitingHumanReply=true).',
+  })
+  markWaiting(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.setWaiting(id, orgId, true, userId, access);
+  }
+
+  @Post(':id/unwaiting')
+  @ApiOperation({
+    summary:
+      'Retirar do "Esperando" — remove a marca de aguardando resposta humana (awaitingHumanReply=false).',
+  })
+  unmarkWaiting(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.setWaiting(id, orgId, false, userId, access);
+  }
+
   @Post(':id/read')
   @ApiOperation({ summary: 'Mark conversation as read for current user' })
   markAsRead(

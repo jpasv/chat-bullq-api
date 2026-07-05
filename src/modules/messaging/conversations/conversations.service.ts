@@ -565,6 +565,39 @@ export class ConversationsService {
     return updated;
   }
 
+  /**
+   * Move a conversa entre as abas "Esperando" e "Caixa de entrada" manualmente.
+   * A aba Esperando é derivada do flag `awaitingHumanReply` (true = cliente
+   * aguardando resposta humana). Normalmente o flag é ligado por uma inbound
+   * e desligado quando um operador responde — este método é o override manual
+   * pedido pela equipe (menu de contexto: "Colocar/Retirar do esperando").
+   */
+  async setWaiting(
+    id: string,
+    organizationId: string,
+    waiting: boolean,
+    actorId: string,
+    access: ChannelAccess = 'ALL',
+  ) {
+    await this.findOne(id, organizationId, access);
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: { awaitingHumanReply: waiting },
+    });
+
+    await this.prisma.conversationAuditLog.create({
+      data: {
+        conversationId: id,
+        actorId,
+        action: waiting ? 'MARKED_WAITING' : 'UNMARKED_WAITING',
+        metadata: {},
+      },
+    });
+
+    this.broadcastUpdate(updated as Conversation);
+    return updated;
+  }
+
   async assignToMe(
     id: string,
     organizationId: string,
