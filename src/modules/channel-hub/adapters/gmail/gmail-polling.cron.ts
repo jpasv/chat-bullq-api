@@ -7,7 +7,7 @@ import { PrismaService } from '../../../../database/prisma.service';
 import { GmailHttpClient, GmailMessageStub } from './gmail.http-client';
 import { GmailMessageMapper } from './gmail.message-mapper';
 import {
-  GMAIL_INITIAL_BACKFILL_MAX,
+  GMAIL_INITIAL_BACKFILL_MAX_DEFAULT,
   GMAIL_INITIAL_LOOKBACK_HOURS_DEFAULT,
   GMAIL_POLL_JOB,
   GMAIL_POLL_PATTERN_DEFAULT,
@@ -233,18 +233,22 @@ export class GmailPollingCron extends WorkerHost implements OnModuleInit {
       cfg.lastInternalDate ?? Date.now() - lookbackHours * 60 * 60 * 1000;
     const q = `after:${Math.floor(sinceMs / 1000)} -in:chats`;
 
+    const backfillMax = Number(
+      this.config.get('GMAIL_INITIAL_BACKFILL_MAX') ??
+        GMAIL_INITIAL_BACKFILL_MAX_DEFAULT,
+    );
     const stubs: GmailMessageStub[] = [];
     let pageToken: string | undefined;
     do {
       const page = await this.httpClient.listMessages(
         channel,
         q,
-        Math.min(100, GMAIL_INITIAL_BACKFILL_MAX - stubs.length),
+        Math.min(100, backfillMax - stubs.length),
         pageToken,
       );
       stubs.push(...(page.messages ?? []));
       pageToken = page.nextPageToken;
-    } while (pageToken && stubs.length < GMAIL_INITIAL_BACKFILL_MAX);
+    } while (pageToken && stubs.length < backfillMax);
 
     // messages.list não traz labelIds no stub — o filtro definitivo roda
     // no re-check pós messages.get (pollChannel).

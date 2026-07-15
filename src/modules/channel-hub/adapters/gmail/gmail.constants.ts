@@ -7,8 +7,12 @@ export const GMAIL_POLL_PATTERN_DEFAULT = '*/1 * * * *';
 /** Backfill inicial (horas) quando o canal ainda não tem watermark. */
 export const GMAIL_INITIAL_LOOKBACK_HOURS_DEFAULT = 24;
 
-/** Máximo de emails ingeridos por canal num único backfill inicial. */
-export const GMAIL_INITIAL_BACKFILL_MAX = 100;
+/**
+ * Máximo de emails ingeridos por canal num único backfill inicial —
+ * sobreponível via env GMAIL_INITIAL_BACKFILL_MAX (backfills longos de
+ * caixas movimentadas precisam de milhares).
+ */
+export const GMAIL_INITIAL_BACKFILL_MAX_DEFAULT = 100;
 
 /**
  * Labels que NUNCA ingerimos:
