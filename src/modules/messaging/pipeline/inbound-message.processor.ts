@@ -205,10 +205,19 @@ export class InboundMessageProcessor extends WorkerHost {
             direction,
             isEcho,
           );
-          await tx.conversation.update({
-            where: { id: conversationId },
-            data: { lastMessageAt: new Date() },
-          });
+          // lastMessageAt segue o horário REAL da mensagem (backfill ingere
+          // emails antigos) e nunca regride — uma cópia atrasada de algo
+          // antigo não pode rebaixar uma conversa ativa na lista.
+          // timestamp atravessa a fila como JSON → chega string; coage.
+          const messageAt = message.timestamp
+            ? new Date(message.timestamp)
+            : new Date();
+          await tx.$executeRaw`
+            UPDATE conversations
+            SET last_message_at = ${messageAt}
+            WHERE id = ${conversationId}
+              AND (last_message_at IS NULL OR last_message_at < ${messageAt})
+          `;
           if (
             result.isNew &&
             direction === MessageDirection.INBOUND
@@ -423,6 +432,12 @@ export class InboundMessageProcessor extends WorkerHost {
           // Timestamp do provedor — ordena corretamente as cópias de grupo
           // que chegam fora de ordem por instâncias membros diferentes.
           providerTimestamp: message.timestamp ?? null,
+          // createdAt = horário real da mensagem no provedor: no backfill
+          // de email um histórico de semanas entra de uma vez e carimbá-lo
+          // com a hora da ingestão mentiria na timeline do chat.
+          ...(message.timestamp
+            ? { createdAt: new Date(message.timestamp) }
+            : {}),
           senderName: message.senderName || null,
           sentAt: isEcho ? new Date() : null,
           deliveredAt: isEcho ? null : new Date(),
