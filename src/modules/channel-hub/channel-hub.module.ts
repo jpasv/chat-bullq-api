@@ -16,6 +16,9 @@ import { InstagramModule } from './adapters/instagram/instagram.module';
 import { InstagramInboundAdapter } from './adapters/instagram/instagram.inbound-adapter';
 import { InstagramOutboundAdapter } from './adapters/instagram/instagram.outbound-adapter';
 import { InstagramSyncAdapter } from './adapters/instagram/instagram.sync-adapter';
+import { GmailModule } from './adapters/gmail/gmail.module';
+import { GmailInboundAdapter } from './adapters/gmail/gmail.inbound-adapter';
+import { GmailOutboundAdapter } from './adapters/gmail/gmail.outbound-adapter';
 import { ChannelSyncOrchestrator } from './sync/channel-sync.orchestrator';
 import { ChannelSyncProcessor } from './sync/channel-sync.processor';
 import { CHANNEL_SYNC_QUEUE } from './sync/channel-sync.constants';
@@ -38,6 +41,7 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
     ZappfyModule,
     WhatsAppOfficialModule,
     InstagramModule,
+    GmailModule,
     forwardRef(() => MessagingModule),
   ],
   controllers: [WebhookGatewayController, ChannelsController],
@@ -57,6 +61,7 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
     WebhookEventsService,
     InstagramModule,
     ZappfyModule,
+    GmailModule,
   ],
 })
 export class ChannelHubModule implements OnModuleInit {
@@ -70,12 +75,15 @@ export class ChannelHubModule implements OnModuleInit {
     private readonly instagramInbound: InstagramInboundAdapter,
     private readonly instagramOutbound: InstagramOutboundAdapter,
     private readonly instagramSync: InstagramSyncAdapter,
+    private readonly gmailInbound: GmailInboundAdapter,
+    private readonly gmailOutbound: GmailOutboundAdapter,
   ) {}
 
   onModuleInit() {
     this.registry.register(this.zappfyInbound, this.zappfyOutbound);
     this.registry.register(this.waOfficialInbound, this.waOfficialOutbound);
     this.registry.register(this.instagramInbound, this.instagramOutbound);
+    this.registry.register(this.gmailInbound, this.gmailOutbound);
     this.registry.registerHistorySync(this.zappfySync);
     this.registry.registerHistorySync(this.instagramSync);
   }

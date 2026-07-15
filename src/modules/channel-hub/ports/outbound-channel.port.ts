@@ -63,6 +63,20 @@ export interface OutboundChannelPort {
     contactExternalId?: string,
   ): Promise<void>;
 
+  /**
+   * Espelha "conversa lida" no provider — sync bidirecional de leitura.
+   * GMAIL: remove o label UNREAD das mensagens na caixa, pra quem abrir o
+   * Gmail ver o mesmo estado do inbox. Recebe os externalIds das mensagens
+   * inbound recentes da conversa.
+   *
+   * Opcional como o deleteMessage: canais de chat não implementam e o
+   * caller checa `typeof adapter.markConversationRead === 'function'`.
+   */
+  markConversationRead?(
+    channel: Channel,
+    externalMessageIds: string[],
+  ): Promise<void>;
+
   getRateLimits(): RateLimitConfig;
 }
 

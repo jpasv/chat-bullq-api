@@ -25,6 +25,7 @@ enum ChannelType {
   WHATSAPP_OFFICIAL
   WHATSAPP_ZAPPFY
   INSTAGRAM
+  GMAIL
 }
 
 // ORG    = todos os membros da org enxergam (default — preserva o comportamento legado)
@@ -494,6 +495,10 @@ model Conversation {
   // RBAC, realtime). segmentId serve para localizar/deduplicar a conversa de
   // grupo entre os vários canais membros via (segmentId, group_JID).
   segmentId       String?            @map("segment_id")
+  // Canais baseados em thread (GMAIL): id do thread no provider. Permite
+  // 1 conversa por thread de email em vez de 1 por contato — canais de
+  // chat (WhatsApp/IG) deixam NULL e continuam chaveando por contato.
+  externalThreadId String?           @map("external_thread_id")
   contactId       String             @map("contact_id")
   assignedToId    String?            @map("assigned_to_id")
   departmentId    String?            @map("department_id")
@@ -567,6 +572,8 @@ model Conversation {
   @@index([organizationId, isArchived], name: "idx_conv_org_archived")
   @@index([segmentId, contactId], name: "idx_conv_segment_contact")
   @@index([contactId], name: "idx_conv_contact")
+  // NULLs são distintos no Postgres → não afeta canais de chat.
+  @@unique([channelId, externalThreadId], name: "uq_conv_channel_thread", map: "uq_conv_channel_thread")
   @@index([lastMessageAt], name: "idx_conv_last_msg")
   @@map("conversations")
 }

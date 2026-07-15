@@ -176,6 +176,14 @@ export class InboundMessageProcessor extends WorkerHost {
         channelId,
         contactId,
         message.isGroup,
+        // Canais thread-based (GMAIL): conversa chaveada pelo thread do
+        // provider; subject vira o título. Chat channels não setam isso.
+        message.threadExternalId
+          ? {
+              externalThreadId: message.threadExternalId,
+              subject: message.subject,
+            }
+          : undefined,
       );
 
       const isEcho = !!message.isEcho;

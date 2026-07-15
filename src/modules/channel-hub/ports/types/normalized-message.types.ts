@@ -77,6 +77,15 @@ export interface NormalizedInboundMessage {
   isGroup?: boolean;
   isEcho?: boolean;
   senderName?: string;
+  /**
+   * Canais thread-based (GMAIL): id do thread no provider. Vira
+   * `Conversation.externalThreadId` — 1 conversa por thread de email.
+   * Canais de chat (WhatsApp/IG) deixam undefined e seguem chaveando
+   * a conversa por contato.
+   */
+  threadExternalId?: string;
+  /** Assunto do email — usado como `Conversation.subject` na criação. */
+  subject?: string;
   rawPayload: unknown;
 }
 
@@ -99,6 +108,19 @@ export interface NormalizedOutboundMessage {
     previewText?: string;
     /** Nome de quem enviou a msg citada — Instagram fallback. */
     senderName?: string;
+  };
+  /**
+   * Contexto de threading pra canais de email (GMAIL). Preenchido pelo
+   * OutboundMessageProcessor a partir da conversa + última msg inbound,
+   * pra resposta sair no thread certo (`threadId` + `In-Reply-To`/
+   * `References` casando com o Message-ID original). Adapters de chat
+   * ignoram.
+   */
+  emailContext?: {
+    threadId?: string;
+    inReplyTo?: string;
+    references?: string;
+    subject?: string;
   };
 }
 

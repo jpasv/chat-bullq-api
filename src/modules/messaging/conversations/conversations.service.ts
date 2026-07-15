@@ -581,7 +581,50 @@ export class ConversationsService {
       lastReadAt: read.lastReadAt,
     });
 
+    // Sync bidirecional: canais que suportam (GMAIL) espelham o "lido"
+    // no provider. Fire-and-forget — nunca bloqueia o mark-read local.
+    this.syncProviderRead(conversationId).catch((err) =>
+      this.logger.warn(
+        `Provider read-sync failed for conv ${conversationId}: ${err?.message ?? err}`,
+      ),
+    );
+
     return { ok: true, lastReadAt: read.lastReadAt };
+  }
+
+  /**
+   * Espelha a leitura no provider quando o adapter do canal expõe
+   * `markConversationRead` (hoje só GMAIL — remove o label UNREAD na
+   * caixa). Limita às últimas mensagens inbound pra não estourar quota.
+   */
+  private async syncProviderRead(conversationId: string): Promise<void> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { channel: true },
+    });
+    if (!conversation?.channel) return;
+
+    const adapter = this.adapterRegistry.hasAdapter(conversation.channel.type)
+      ? this.adapterRegistry.getOutbound(conversation.channel.type)
+      : null;
+    if (!adapter || typeof adapter.markConversationRead !== 'function') return;
+
+    const recentInbound = await this.prisma.message.findMany({
+      where: {
+        conversationId,
+        direction: 'INBOUND',
+        externalId: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { externalId: true },
+    });
+    const externalIds = recentInbound
+      .map((m) => m.externalId)
+      .filter((id): id is string => !!id);
+    if (externalIds.length === 0) return;
+
+    await adapter.markConversationRead(conversation.channel, externalIds);
   }
 
   /**

@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { MessageStatus } from '@prisma/client';
+import { ChannelType, MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
@@ -37,17 +37,27 @@ export class OutboundMessageProcessor extends WorkerHost {
 
     const adapter = this.adapterRegistry.getOutbound(channel.type);
 
+    // Email precisa de contexto de threading (threadId + In-Reply-To/
+    // References) pra resposta cair no thread certo do Gmail. Montado aqui
+    // — e não no adapter — porque só o processor enxerga a conversa.
+    if (channel.type === ChannelType.GMAIL && !message.emailContext) {
+      await this.attachEmailContext(messageId, message);
+    }
+
     // Humanize: if this message was sent by an AI agent, simulate typing
     // delay proportional to text length before actually sending. Customers
     // perceive instant replies as bot-like; a 2-4s "typing..." gap with the
     // typing indicator on feels like a real person on the other side.
-    await this.simulateTypingIfAiMessage({
-      messageId,
-      channel,
-      contactExternalId,
-      message,
-      adapter,
-    });
+    // Email não tem "digitando..." — o delay só atrasaria a entrega.
+    if (channel.type !== ChannelType.GMAIL) {
+      await this.simulateTypingIfAiMessage({
+        messageId,
+        channel,
+        contactExternalId,
+        message,
+        adapter,
+      });
+    }
 
     try {
       const result = await adapter.sendMessage(
@@ -177,6 +187,63 @@ export class OutboundMessageProcessor extends WorkerHost {
       'message:status',
       payload,
     );
+  }
+
+  /**
+   * Monta o `emailContext` da mensagem outbound (GMAIL): threadId da
+   * conversa + In-Reply-To/References/Subject tirados da última mensagem
+   * inbound do thread (o mapper guardou o slim context em
+   * `metadata.rawPayload.gmail`). Sem inbound anterior (email novo
+   * iniciado por nós) o contexto fica só com o subject da conversa —
+   * o mapper cai pro modo "email novo".
+   */
+  private async attachEmailContext(
+    messageId: string,
+    message: NormalizedOutboundMessage,
+  ): Promise<void> {
+    try {
+      const row = await this.prisma.message.findUnique({
+        where: { id: messageId },
+        select: { conversationId: true },
+      });
+      if (!row) return;
+
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { id: row.conversationId },
+        select: { externalThreadId: true, subject: true },
+      });
+
+      const lastInbound = await this.prisma.message.findFirst({
+        where: {
+          conversationId: row.conversationId,
+          direction: MessageDirection.INBOUND,
+          externalId: { not: null },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      });
+      const gmail = (lastInbound?.metadata as any)?.rawPayload?.gmail as
+        | {
+            threadId?: string;
+            messageIdHeader?: string;
+            references?: string;
+            subject?: string;
+          }
+        | undefined;
+
+      message.emailContext = {
+        threadId: conversation?.externalThreadId ?? gmail?.threadId,
+        inReplyTo: gmail?.messageIdHeader,
+        references: gmail?.references,
+        subject: conversation?.subject ?? gmail?.subject,
+      };
+    } catch (err: any) {
+      // Threading é best-effort — sem contexto o email sai fora do thread,
+      // mas sai. Nunca bloqueia o envio.
+      this.logger.warn(
+        `attachEmailContext failed for msg ${messageId}: ${err?.message ?? err}`,
+      );
+    }
   }
 
   /**

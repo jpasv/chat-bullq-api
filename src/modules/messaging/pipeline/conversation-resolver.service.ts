@@ -10,6 +10,15 @@ export interface ResolvedConversation {
   wasReopened: boolean;
 }
 
+/**
+ * Canais thread-based (GMAIL): a conversa é chaveada pelo thread do
+ * provider — não pelo contato. `subject` vira o título na criação.
+ */
+export interface ThreadResolveOpts {
+  externalThreadId?: string;
+  subject?: string;
+}
+
 const OPEN_STATES = [
   ConversationStatus.PENDING,
   ConversationStatus.OPEN,
@@ -31,7 +40,15 @@ export class ConversationResolverService {
     channelId: string,
     contactId: string,
     isGroup?: boolean,
+    opts?: ThreadResolveOpts,
   ): Promise<ResolvedConversation> {
+    // Path thread-based (só o GMAIL passa externalThreadId): 1 conversa por
+    // thread de email. Isolado aqui — canais de chat seguem o path abaixo
+    // idêntico ao que sempre foi.
+    if (opts?.externalThreadId) {
+      return this.resolveByThread(organizationId, channelId, contactId, opts);
+    }
+
     // Fast path without lock — most webhooks hit an already-open conversation.
     const fast = await this.findOpen(organizationId, channelId, contactId);
     if (fast) return this.touchOpen(fast, isGroup);
@@ -113,6 +130,101 @@ export class ConversationResolverService {
         };
       },
     );
+  }
+
+  /**
+   * Resolve por thread do provider (unique `(channelId, externalThreadId)`).
+   * Diferença pro path de chat: mensagem nova num thread FECHADO sempre
+   * reabre a MESMA conversa (sem janela de 24h) — email é lento e o
+   * histórico do thread pertence a uma conversa só.
+   */
+  private async resolveByThread(
+    organizationId: string,
+    channelId: string,
+    contactId: string,
+    opts: ThreadResolveOpts,
+  ): Promise<ResolvedConversation> {
+    const externalThreadId = opts.externalThreadId!;
+
+    const fast = await this.findByThread(channelId, externalThreadId);
+    if (fast && this.isOpen(fast.status)) return this.touchOpen(fast);
+
+    return this.idempotency.withLock(
+      `conv:${channelId}:${externalThreadId}`,
+      async () => {
+        const existing = await this.findByThread(channelId, externalThreadId);
+        if (existing) {
+          if (this.isOpen(existing.status)) return this.touchOpen(existing);
+
+          await this.prisma.conversation.update({
+            where: { id: existing.id },
+            data: {
+              status: ConversationStatus.PENDING,
+              closedAt: null,
+              assignedToId: null,
+            },
+          });
+          await this.prisma.conversationAuditLog.create({
+            data: {
+              conversationId: existing.id,
+              action: 'REOPENED',
+              fromValue: existing.status,
+              toValue: ConversationStatus.PENDING,
+              metadata: { trigger: 'new_inbound_message' },
+            },
+          });
+          this.logger.log(`Thread conversation reopened: ${existing.id}`);
+          return {
+            conversationId: existing.id,
+            status: ConversationStatus.PENDING,
+            isNew: false,
+            wasReopened: true,
+          };
+        }
+
+        const protocol = this.generateProtocol();
+        const conversation = await this.prisma.conversation.create({
+          data: {
+            organizationId,
+            channelId,
+            contactId,
+            externalThreadId,
+            subject: opts.subject ?? null,
+            status: ConversationStatus.PENDING,
+            protocol,
+            isGroup: false,
+          },
+        });
+        await this.prisma.conversationAuditLog.create({
+          data: {
+            conversationId: conversation.id,
+            action: 'CREATED',
+            toValue: ConversationStatus.PENDING,
+          },
+        });
+        this.logger.log(
+          `New thread conversation: ${conversation.id} (thread: ${externalThreadId})`,
+        );
+        return {
+          conversationId: conversation.id,
+          status: ConversationStatus.PENDING,
+          isNew: true,
+          wasReopened: false,
+        };
+      },
+    );
+  }
+
+  private findByThread(channelId: string, externalThreadId: string) {
+    return this.prisma.conversation.findUnique({
+      where: {
+        uq_conv_channel_thread: { channelId, externalThreadId },
+      },
+    });
+  }
+
+  private isOpen(status: ConversationStatus): boolean {
+    return (OPEN_STATES as readonly ConversationStatus[]).includes(status);
   }
 
   private async findOpen(

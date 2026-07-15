@@ -14,6 +14,7 @@ import { ChannelAdapterRegistry } from '../channel-adapter.registry';
 import { ZappfyHttpClient } from '../adapters/zappfy/zappfy.http-client';
 import { WhatsAppOfficialHttpClient } from '../adapters/whatsapp-official/whatsapp-official.http-client';
 import { InstagramHttpClient } from '../adapters/instagram/instagram.http-client';
+import { GmailHttpClient } from '../adapters/gmail/gmail.http-client';
 import { ChannelSyncOrchestrator } from '../sync/channel-sync.orchestrator';
 import {
   ChannelAccessService,
@@ -30,6 +31,7 @@ export class ChannelsService {
     private readonly zappfyHttpClient: ZappfyHttpClient,
     private readonly waOfficialHttpClient: WhatsAppOfficialHttpClient,
     private readonly instagramHttpClient: InstagramHttpClient,
+    private readonly gmailHttpClient: GmailHttpClient,
     private readonly syncOrchestrator: ChannelSyncOrchestrator,
     private readonly prisma: PrismaService,
     private readonly channelAccess: ChannelAccessService,
@@ -345,6 +347,21 @@ export class ChannelsService {
               igUserId: info.user_id || info.id,
               accountType: info.account_type,
               name: info.name,
+            },
+          };
+        }
+
+        case ChannelType.GMAIL: {
+          // getProfile valida o refresh_token de verdade (emite access token
+          // e chama a API) — se passar, o polling e o envio vão funcionar.
+          const profile = await this.gmailHttpClient.getProfile(channel);
+          return {
+            success: true,
+            status: 'connected',
+            data: {
+              emailAddress: profile.emailAddress,
+              messagesTotal: profile.messagesTotal,
+              historyId: profile.historyId,
             },
           };
         }
