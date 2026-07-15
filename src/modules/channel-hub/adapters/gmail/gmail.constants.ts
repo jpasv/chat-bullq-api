@@ -16,19 +16,16 @@ export const GMAIL_INITIAL_BACKFILL_MAX_DEFAULT = 100;
 
 /**
  * Labels que NUNCA ingerimos:
- * - SENT/DRAFT: loop-safety — a resposta da IA volta como mensagem nova na
- *   caixa; re-ingerir criaria loop de auto-resposta (e a linha já existe
- *   via OutboundMessageProcessor).
+ * - DRAFT: rascunho não é mensagem.
  * - SPAM/TRASH: responder spam automaticamente é footgun.
  * - CHAT: mensagens do finado Hangouts embutidas no Gmail, sem MIME.
+ *
+ * SENT passa de propósito: o mapper transforma from == própria caixa em
+ * ECHO (OUTBOUND) — resposta enviada pelo app do Gmail aparece no chat
+ * como respondida e cancela o watchdog (sem loop: echo nunca dispara IA,
+ * e a saída do próprio chat morre no dedupe por externalId).
  */
-export const GMAIL_SKIP_LABELS = new Set([
-  'SENT',
-  'DRAFT',
-  'SPAM',
-  'TRASH',
-  'CHAT',
-]);
+export const GMAIL_SKIP_LABELS = new Set(['DRAFT', 'SPAM', 'TRASH', 'CHAT']);
 
 /**
  * Config guardada em `Channel.config` pra canais GMAIL.

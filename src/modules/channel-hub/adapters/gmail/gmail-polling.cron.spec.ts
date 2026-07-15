@@ -163,11 +163,11 @@ describe('GmailPollingCron.process', () => {
       history: {
         history: [
           // stub SEM labelIds — engana o primeiro filtro
-          { id: '11', messagesAdded: [{ message: { id: 'echo1', threadId: 't' } as any }] },
+          { id: '11', messagesAdded: [{ message: { id: 'draft1', threadId: 't' } as any }] },
         ],
         historyId: '12',
       },
-      messages: { echo1: gmailMessage('echo1', ['SENT']) },
+      messages: { draft1: gmailMessage('draft1', ['DRAFT']) },
     });
 
     const result = await cron.process({} as any);

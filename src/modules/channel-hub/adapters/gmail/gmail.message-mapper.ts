@@ -65,16 +65,21 @@ export class GmailMessageMapper {
     const attachments = collectAttachments(gmailMsg.payload);
 
     const cfg = channel.config as unknown as GmailChannelConfig;
-    // Belt-and-suspenders além do skip por label SENT no poller: se o
-    // remetente é a própria caixa (alias/send-as), nunca ingerir como
-    // mensagem de cliente.
-    if (
-      from.email &&
-      cfg?.email &&
-      from.email.toLowerCase() === cfg.email.toLowerCase()
-    ) {
+    // Remetente = própria caixa → ECHO: resposta enviada por fora do chat
+    // (app do Gmail, webmail) entra como OUTBOUND pra conversa aparecer
+    // respondida e o watchdog cancelar — sem isso a IA re-responderia um
+    // cliente que a equipe já atendeu. Nossas próprias saídas (chat/IA)
+    // também voltam por aqui e morrem no dedupe (conversationId, externalId).
+    const isEcho =
+      !!from.email &&
+      !!cfg?.email &&
+      from.email.toLowerCase() === cfg.email.toLowerCase();
+    const to = parseAddress(headers['to'] ?? '');
+    if (isEcho && !to.email) {
+      // Echo sem destinatário identificável não tem conversa pra ancorar.
       return [];
     }
+    const counterparty = isEcho ? to : from;
 
     const raw: GmailRawContext = {
       gmail: {
@@ -94,15 +99,15 @@ export class GmailMessageMapper {
     };
 
     const base = {
-      externalContactId: (from.email || 'unknown@unknown').toLowerCase(),
-      contactName: from.name || from.email || undefined,
+      externalContactId: (counterparty.email || 'unknown@unknown').toLowerCase(),
+      contactName: counterparty.name || counterparty.email || undefined,
       channelType: ChannelType.GMAIL,
       timestamp,
       threadExternalId: gmailMsg.threadId,
       subject,
       senderName: from.name || from.email || undefined,
       isGroup: false,
-      isEcho: false,
+      isEcho,
     };
 
     const messages: NormalizedInboundMessage[] = [];
@@ -120,7 +125,9 @@ export class GmailMessageMapper {
       });
     }
 
-    attachments.forEach((att, i) => {
+    // Echo não expande anexos: a saída via chat guarda 1 linha por mensagem
+    // e o dedupe é por externalId — expandir #att<i> no echo duplicaria.
+    (isEcho ? [] : attachments).forEach((att, i) => {
       messages.push({
         ...base,
         // Sufixo #att<i> mantém unicidade em (conversationId, externalId);

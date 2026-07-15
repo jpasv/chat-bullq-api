@@ -154,7 +154,27 @@ describe('GmailMessageMapper.normalizeInbound', () => {
     expect(msgs[2].type).toBe(MessageContentType.IMAGE);
   });
 
-  it('loop-safety: email enviado pela própria caixa (send-as) retorna vazio', () => {
+  it('echo: email enviado pela própria caixa vira OUTBOUND com contato = destinatário', () => {
+    const email = textEmail({
+      payload: {
+        mimeType: 'text/plain',
+        headers: [
+          { name: 'From', value: 'Suporte <SUPORTE@bravy.com.br>' },
+          { name: 'To', value: 'Maria <maria@cliente.com>' },
+          { name: 'Subject', value: 'Re: Problema' },
+        ],
+        body: { data: b64url('resposta da própria caixa') },
+      },
+    });
+    const msgs = mapper.normalizeInbound(email, channel);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].isEcho).toBe(true);
+    expect(msgs[0].externalContactId).toBe('maria@cliente.com');
+    expect(msgs[0].contactName).toBe('Maria');
+    expect(msgs[0].senderName).toBe('Suporte');
+  });
+
+  it('echo sem destinatário identificável é descartado', () => {
     const email = textEmail({
       payload: {
         mimeType: 'text/plain',
