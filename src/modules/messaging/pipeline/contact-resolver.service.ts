@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ChannelType } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { NormalizedInboundMessage } from '../../channel-hub/ports/types';
 import { IdempotencyService } from './idempotency.service';
@@ -72,6 +73,10 @@ export class ContactResolverService {
             organizationId,
             name: message.contactName,
             phone: message.contactPhone,
+            // Em canais de email a identidade externa É o endereço — sem
+            // isso o campo fica NULL e a IA pede ao cliente um email que
+            // já está na conversa.
+            email: emailIdentityOf(message),
             avatarUrl: message.contactAvatarUrl,
             channels: {
               create: {
@@ -104,7 +109,11 @@ export class ContactResolverService {
       profileName: string | null;
       profileAvatarUrl: string | null;
       contactId: string;
-      contact: { name: string | null; phone: string | null };
+      contact: {
+        name: string | null;
+        phone: string | null;
+        email: string | null;
+      };
     },
     message: NormalizedInboundMessage,
   ): Promise<void> {
@@ -132,6 +141,10 @@ export class ContactResolverService {
     if (message.contactPhone && !existing.contact.phone) {
       contactUpdates.phone = message.contactPhone;
     }
+    const emailIdentity = emailIdentityOf(message);
+    if (emailIdentity && !existing.contact.email) {
+      contactUpdates.email = emailIdentity;
+    }
     if (Object.keys(contactUpdates).length > 0) {
       await this.prisma.contact.update({
         where: { id: existing.contactId },
@@ -139,4 +152,17 @@ export class ContactResolverService {
       });
     }
   }
+}
+
+/**
+ * Endereço de email do contato quando a identidade externa do canal é um
+ * email (GMAIL). NÃO usar "contém @" como heurística — JID de WhatsApp
+ * também tem @ (5521...@s.whatsapp.net).
+ */
+function emailIdentityOf(
+  message: NormalizedInboundMessage,
+): string | undefined {
+  return message.channelType === ChannelType.GMAIL
+    ? message.externalContactId
+    : undefined;
 }
