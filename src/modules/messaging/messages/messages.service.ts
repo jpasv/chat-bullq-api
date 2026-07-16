@@ -8,12 +8,14 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
+  ChannelType,
   MessageDirection,
   MessageContentType,
   MessageStatus,
 } from '@prisma/client';
 import { MessagesRepository } from './messages.repository';
 import { SendMessageDto } from './dto/send-message.dto';
+import { StartConversationDto } from '../conversations/dto/start-conversation.dto';
 import { PrismaService } from '../../../database/prisma.service';
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
 import {
@@ -23,6 +25,8 @@ import {
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
 import { SegmentReadService } from '../../segments/segment-read.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
+import { ContactResolverService } from '../pipeline/contact-resolver.service';
+import { ConversationResolverService } from '../pipeline/conversation-resolver.service';
 
 @Injectable()
 export class MessagesService {
@@ -36,8 +40,70 @@ export class MessagesService {
     private readonly watchdog: WatchdogService,
     private readonly adapterRegistry: ChannelAdapterRegistry,
     private readonly segmentRead: SegmentReadService,
+    private readonly contactResolver: ContactResolverService,
+    private readonly conversationResolver: ConversationResolverService,
     @InjectQueue('outbound-messages') private readonly outboundQueue: Queue,
   ) {}
+
+  /**
+   * Operador inicia conversa ativa pelo painel com um cliente que pode nunca
+   * ter tido histórico ("Nova conversa"). Instagram fica de fora: a política
+   * da Meta não permite negócio iniciar DM com quem nunca interagiu (sem
+   * template/opt-in não tem "cold start" via Graph API, diferente do
+   * WhatsApp Oficial que aceita HSM aprovado).
+   *
+   * Resolve contato + conversa e delega pro `send()` de sempre — mesmo
+   * enfileiramento, auto-assign e side-effects de qualquer mensagem manual.
+   */
+  async startConversation(
+    dto: StartConversationDto,
+    senderId: string,
+    organizationId: string,
+    access: ChannelAccess = 'ALL',
+  ) {
+    const channel = await this.prisma.channel.findUnique({
+      where: { id: dto.channelId },
+    });
+    if (!channel) throw new NotFoundException('Channel not found');
+    if (channel.organizationId !== organizationId) {
+      throw new ForbiddenException();
+    }
+    this.channelAccess.assertChannelAccess(access, channel.id);
+
+    if (channel.type === ChannelType.INSTAGRAM) {
+      throw new BadRequestException(
+        'Não é possível iniciar conversa no Instagram: a política da Meta só ' +
+          'permite mensagens dentro da janela de 24h após o cliente interagir ' +
+          'primeiro — não existe envio "a frio" via API, nem com template.',
+      );
+    }
+
+    const resolvedContact = await this.contactResolver.resolveManual(
+      organizationId,
+      channel.id,
+      channel.type,
+      dto.contact,
+    );
+
+    const resolvedConversation = await this.conversationResolver.resolveForOperator(
+      organizationId,
+      channel.id,
+      resolvedContact.contactId,
+      senderId,
+      dto.subject,
+    );
+
+    return this.send(
+      {
+        conversationId: resolvedConversation.conversationId,
+        type: dto.message.type,
+        content: dto.message.content,
+      },
+      senderId,
+      organizationId,
+      access,
+    );
+  }
 
   async send(
     dto: SendMessageDto,

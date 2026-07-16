@@ -13,6 +13,8 @@ import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { OrgRole } from '@prisma/client';
 import { ConversationsService } from './conversations.service';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
+import { StartConversationDto } from './dto/start-conversation.dto';
+import { MessagesService } from '../messages/messages.service';
 import { JwtAuthGuard, OrgGuard, RolesGuard } from '../../../common/guards';
 import {
   CurrentUser,
@@ -27,7 +29,24 @@ import type { ChannelAccess } from '../../iam/channel-access/channel-access.serv
 @UseGuards(JwtAuthGuard, OrgGuard, RolesGuard)
 @Controller('conversations')
 export class ConversationsController {
-  constructor(private readonly service: ConversationsService) {}
+  constructor(
+    private readonly service: ConversationsService,
+    private readonly messagesService: MessagesService,
+  ) {}
+
+  @Post()
+  @ApiOperation({
+    summary:
+      'Inicia uma conversa ativa com um contato (que pode nunca ter tido histórico) e envia a primeira mensagem. Instagram não é suportado (política da Meta não permite DM a frio).',
+  })
+  start(
+    @Body() dto: StartConversationDto,
+    @CurrentUser('id') userId: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.messagesService.startConversation(dto, userId, orgId, access);
+  }
 
   @Get()
   @ApiOperation({ summary: 'List conversations (inbox)' })

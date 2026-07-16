@@ -111,4 +111,13 @@ export class ChannelsController {
   testConnection(@Param('id') id: string, @CurrentOrg('id') orgId: string) {
     return this.service.testConnection(id, orgId);
   }
+
+  @Get(':id/templates')
+  @ApiOperation({
+    summary:
+      'List Meta-approved HSM templates for a WhatsApp Official channel (required to start a conversation outside the 24h window)',
+  })
+  getTemplates(@Param('id') id: string, @CurrentOrg('id') orgId: string) {
+    return this.service.getTemplates(id, orgId);
+  }
 }

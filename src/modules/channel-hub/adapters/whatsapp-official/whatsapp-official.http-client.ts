@@ -94,4 +94,34 @@ export class WhatsAppOfficialHttpClient {
     const { data } = await client.post(`/${cfg.businessAccountId}/subscribed_apps`);
     return data;
   }
+
+  /**
+   * Templates HSM aprovados da WABA — obrigatórios pra iniciar conversa fora
+   * da janela de 24h (cold start). Só retorna os com `status: APPROVED`;
+   * templates pendentes/rejeitados pela Meta não são utilizáveis.
+   */
+  async listTemplates(channel: Channel): Promise<
+    Array<{
+      name: string;
+      language: string;
+      components: Array<Record<string, any>>;
+    }>
+  > {
+    const cfg = this.getConfig(channel);
+    if (!cfg.businessAccountId) {
+      throw new Error('businessAccountId required to list templates');
+    }
+    const client = this.createClient(channel);
+    const { data } = await client.get(
+      `/${cfg.businessAccountId}/message_templates`,
+      { params: { fields: 'name,status,language,components', limit: 100 } },
+    );
+    return (data?.data ?? [])
+      .filter((t: any) => t.status === 'APPROVED')
+      .map((t: any) => ({
+        name: t.name,
+        language: t.language,
+        components: t.components ?? [],
+      }));
+  }
 }

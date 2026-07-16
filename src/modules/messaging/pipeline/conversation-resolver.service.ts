@@ -215,6 +215,73 @@ export class ConversationResolverService {
     );
   }
 
+  /**
+   * Operador inicia conversa ativa pelo painel ("Nova conversa") com um
+   * contato que pode nunca ter tido histórico. Reaproveita `findOpen()` —
+   * se já existe conversa aberta pra esse contato+canal, devolve ela sem
+   * mexer em status/assignee (mesmo comportamento de reaproveitar e mandar
+   * mensagem numa conversa existente). Se não existe, cria já com o estado
+   * final (`OPEN`, atribuída a quem iniciou, IA desligada) — SEM passar por
+   * `ConversationFsmService.assign()`, porque o FSM dispara o evento de
+   * automação `CONVERSATION_ASSIGNED` e seta `firstResponseAt` (usado nas
+   * métricas de tempo de primeira resposta/SLA). Uma conversa que a empresa
+   * iniciou não é "resposta" a ninguém — não deve contar nessas métricas
+   * nem acionar automação de atribuição.
+   */
+  async resolveForOperator(
+    organizationId: string,
+    channelId: string,
+    contactId: string,
+    senderId: string,
+    /** Só usado na criação (GMAIL) — vira `Conversation.subject`, que
+     *  `outbound-message.processor.ts` usa como assunto do email. Ignorado
+     *  ao reaproveitar uma conversa já existente. */
+    subject?: string,
+  ): Promise<ResolvedConversation> {
+    const fast = await this.findOpen(organizationId, channelId, contactId);
+    if (fast) return this.touchOpen(fast);
+
+    return this.idempotency.withLock(
+      `conv:${channelId}:${contactId}`,
+      async () => {
+        const existing = await this.findOpen(organizationId, channelId, contactId);
+        if (existing) return this.touchOpen(existing);
+
+        const protocol = this.generateProtocol();
+        const conversation = await this.prisma.conversation.create({
+          data: {
+            organizationId,
+            channelId,
+            contactId,
+            status: ConversationStatus.OPEN,
+            assignedToId: senderId,
+            aiEnabled: false,
+            protocol,
+            isGroup: false,
+            subject: subject?.trim() || undefined,
+          },
+        });
+        await this.prisma.conversationAuditLog.create({
+          data: {
+            conversationId: conversation.id,
+            action: 'CREATED',
+            toValue: ConversationStatus.OPEN,
+            metadata: { trigger: 'manual_outreach', createdBy: senderId },
+          },
+        });
+        this.logger.log(
+          `New operator-initiated conversation: ${conversation.id} (protocol: ${protocol})`,
+        );
+        return {
+          conversationId: conversation.id,
+          status: ConversationStatus.OPEN,
+          isNew: true,
+          wasReopened: false,
+        };
+      },
+    );
+  }
+
   private findByThread(channelId: string, externalThreadId: string) {
     return this.prisma.conversation.findUnique({
       where: {

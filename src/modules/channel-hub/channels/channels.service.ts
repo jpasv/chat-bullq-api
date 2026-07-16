@@ -301,6 +301,21 @@ export class ChannelsService {
     return { job };
   }
 
+  /**
+   * Templates HSM aprovados — só relevante pra WhatsApp Oficial (Cloud API),
+   * onde iniciar conversa fora da janela de 24h exige template pré-aprovado
+   * pela Meta. Demais canais nem têm esse conceito.
+   */
+  async getTemplates(id: string, organizationId: string) {
+    const channel = await this.findOne(id, organizationId);
+    if (channel.type !== ChannelType.WHATSAPP_OFFICIAL) {
+      throw new BadRequestException(
+        `Templates só existem para canais WhatsApp Oficial (canal é ${channel.type}).`,
+      );
+    }
+    return this.waOfficialHttpClient.listTemplates(channel);
+  }
+
   async testConnection(id: string, organizationId: string) {
     const channel = await this.findOne(id, organizationId);
 
