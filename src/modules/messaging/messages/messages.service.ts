@@ -331,7 +331,10 @@ export class MessagesService {
     });
 
     let outboundContent = dto.content;
-    if (conversation.isGroup && dto.type === 'TEXT' && outboundContent.text) {
+    // Assina com o nome de quem enviou. Vale também em conversa individual:
+    // vários atendentes dividem o mesmo número, então sem isso o contato não
+    // tem como saber com quem falou.
+    if (dto.type === 'TEXT' && outboundContent.text) {
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
         select: { name: true },

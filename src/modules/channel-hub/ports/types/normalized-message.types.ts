@@ -41,6 +41,14 @@ export interface NormalizedMessageContent {
   longitude?: number;
   reaction?: { emoji: string; targetMessageId: string };
   interactive?: { type: string; buttonId?: string; listRowId?: string };
+  /**
+   * Telefones (só dígitos, com DDI) a mencionar. Vale apenas em grupo.
+   * A string literal 'all' menciona todos os participantes.
+   * Pra o WhatsApp desenhar a menção destacada, o `text` também precisa
+   * conter `@<telefone>` — o número é o que trafega no protocolo; quem
+   * exibe o nome no lugar é o cliente.
+   */
+  mentions?: string[] | 'all';
   template?: {
     templateType?: string;
     text?: string;

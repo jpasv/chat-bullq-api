@@ -5,6 +5,7 @@ import {
   NormalizedOutboundMessage,
   MessageContentType,
   StatusUpdate,
+  TemplateButton,
 } from '../../ports/types';
 
 @Injectable()
@@ -158,11 +159,29 @@ export class ZappfyMessageMapper {
     const withReply = <T extends Record<string, any>>(p: T): T =>
       replyId ? ({ ...p, replyid: replyId } as T) : p;
 
+    // Menção em grupo: o Zappfy espera `mentions` como string separada por
+    // vírgula, ou o literal 'all'. Só faz sentido em grupo — mandar em 1:1 é
+    // ignorado pelo provider, mas evitamos poluir o payload.
+    const rawMentions = message.content.mentions;
+    const isGroupTarget = contactExternalId.endsWith('@g.us');
+    const mentions =
+      isGroupTarget && rawMentions
+        ? rawMentions === 'all'
+          ? 'all'
+          : [...new Set(rawMentions.map((m) => String(m).replace(/\D/g, '')))]
+              .filter(Boolean)
+              .join(',') || undefined
+        : undefined;
+    const withMentions = <T extends Record<string, any>>(p: T): T =>
+      mentions ? ({ ...p, mentions } as T) : p;
+    const withExtras = <T extends Record<string, any>>(p: T): T =>
+      withMentions(withReply(p));
+
     switch (message.type) {
       case MessageContentType.TEXT:
         return {
           endpoint: '/send/text',
-          payload: withReply({ number, text: message.content.text, delay: 1000 }),
+          payload: withExtras({ number, text: message.content.text, delay: 1000 }),
         };
 
       case MessageContentType.IMAGE:
@@ -265,6 +284,19 @@ export class ZappfyMessageMapper {
     if (type.includes('sticker')) return MessageContentType.STICKER;
     if (type.includes('location')) return MessageContentType.LOCATION;
     if (type.includes('reaction')) return MessageContentType.REACTION;
+    // PTV = "picture-in-picture video", o vídeo redondo do WhatsApp. O nome
+    // não carrega "video", então precisa de check próprio.
+    if (type.includes('ptv')) return MessageContentType.VIDEO;
+    // A resposta de um botão é só o rótulo que o usuário clicou — vira texto,
+    // que é o que o front sabe renderizar. Precisa vir ANTES do check de
+    // 'template' e do de 'button' abaixo.
+    if (type.includes('templatebuttonreply')) return MessageContentType.TEXT;
+    if (type.includes('template')) return MessageContentType.TEMPLATE;
+    // Contato (vCard), enquete e álbum não têm tipo próprio no enum. Viram
+    // texto legível em extractContent em vez de bolha vazia.
+    if (type.includes('contact')) return MessageContentType.TEXT;
+    if (type.includes('poll')) return MessageContentType.TEXT;
+    if (type.includes('album')) return MessageContentType.TEXT;
     if (type.includes('button') || type.includes('list')) return MessageContentType.INTERACTIVE;
     return MessageContentType.TEXT;
   }
@@ -336,6 +368,126 @@ export class ZappfyMessageMapper {
         },
       };
     }
-    return { text: content.text || '[Unsupported message type]' };
+    if (type.includes('ptv')) {
+      // PTV entrega a URL em `URL` (maiúsculo), diferente das outras mídias.
+      return {
+        mediaUrl: content.URL || content.url || content.mediaUrl,
+        mimeType: content.mimetype || 'video/mp4',
+        fileSize: content.fileLength,
+      };
+    }
+    if (type.includes('contact')) {
+      return { text: this.formatContact(content, msg) };
+    }
+    if (type.includes('poll')) {
+      return { text: this.formatPoll(content, msg) };
+    }
+    if (type.includes('album')) {
+      return { text: this.formatAlbum(content) };
+    }
+    if (type.includes('templatebuttonreply')) {
+      // O rótulo clicado vem no `text` de topo; `buttonOrListid` é o id.
+      return { text: msg.text || msg.buttonOrListid || '' };
+    }
+    if (type.includes('template')) {
+      return {
+        text: msg.text || '',
+        template: {
+          templateType: 'hydrated',
+          text: msg.text || '',
+          buttons: this.extractTemplateButtons(content),
+        },
+      };
+    }
+    // Fallback: o Zappfy quase sempre manda uma versão legível da mensagem no
+    // `text` de topo, mesmo para tipos que não mapeamos. Usar isso antes de
+    // desistir evita a bolha "[Unsupported message type]" na conversa.
+    return { text: content.text || msg.text || '[Mensagem não suportada]' };
+  }
+
+  /**
+   * vCard -> "Contato: Fulano" + telefones, um por linha.
+   */
+  private formatContact(content: any, msg: any): string {
+    const vcard: string = content.vcard || '';
+    const name =
+      content.displayName ||
+      vcard.match(/^FN:(.+)$/m)?.[1]?.trim() ||
+      'sem nome';
+    // O TEL vem com ou sem o prefixo `itemN.` dependendo de quem exportou o
+    // vCard: "item1.TEL;waid=...:+55 45 8806-1780" ou "TEL;type=CELL;...".
+    const phones = [...vcard.matchAll(/^(?:item\d*\.)?TEL[^:]*:(.+)$/gm)]
+      .map((m) => m[1].trim())
+      .filter(Boolean);
+    if (!vcard && !content.displayName) return msg.text || '[Contato]';
+    return [`Contato: ${name}`, ...phones].join('\n');
+  }
+
+  /**
+   * Enquete -> pergunta + opções com bullet.
+   */
+  private formatPoll(content: any, msg: any): string {
+    const poll =
+      content.pollCreationMessageV3 ||
+      content.pollCreationMessage ||
+      content.pollCreationMessageV2 ||
+      {};
+    const question = (poll.name || msg.text || '').trim();
+    const options = (poll.options || [])
+      .map((o: any) => o?.optionName)
+      .filter(Boolean)
+      .map((o: string) => `• ${o}`);
+    return [`Enquete: ${question}`, ...options].join('\n');
+  }
+
+  /**
+   * Álbum é só o cabeçalho — as mídias chegam depois, cada uma no seu evento.
+   */
+  private formatAlbum(content: any): string {
+    const imgs = Number(content.expectedImageCount) || 0;
+    const vids = Number(content.expectedVideoCount) || 0;
+    const parts: string[] = [];
+    if (imgs) parts.push(`${imgs} ${imgs === 1 ? 'imagem' : 'imagens'}`);
+    if (vids) parts.push(`${vids} ${vids === 1 ? 'vídeo' : 'vídeos'}`);
+    return `Álbum com ${parts.join(' e ') || 'mídias'}`;
+  }
+
+  /**
+   * Achata os hydratedButtons do template do WhatsApp no shape que o front
+   * já renderiza (`content.template.buttons`).
+   */
+  private extractTemplateButtons(content: any): TemplateButton[] {
+    const hydrated =
+      content?.Format?.HydratedFourRowTemplate?.hydratedButtons ||
+      content?.hydratedTemplate?.hydratedButtons ||
+      content?.hydratedButtons ||
+      [];
+    return hydrated
+      .map((entry: any) => {
+        const b = entry?.HydratedButton ?? entry;
+        if (b?.QuickReplyButton) {
+          return {
+            type: 'quick_reply',
+            title: b.QuickReplyButton.displayText || '',
+            payload: b.QuickReplyButton.ID,
+          };
+        }
+        if (b?.UrlButton) {
+          return {
+            type: 'url',
+            title: b.UrlButton.displayText || '',
+            url: b.UrlButton.URL || b.UrlButton.url,
+          };
+        }
+        if (b?.CallButton) {
+          return {
+            type: 'call',
+            title: b.CallButton.displayText || '',
+            payload: b.CallButton.phoneNumber,
+          };
+        }
+        return null;
+      })
+      .filter((b: TemplateButton | null): b is TemplateButton => !!b);
   }
 }

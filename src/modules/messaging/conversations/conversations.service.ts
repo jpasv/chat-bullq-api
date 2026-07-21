@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { Conversation, ConversationStatus } from '@prisma/client';
+import { ChannelType, Conversation, ConversationStatus } from '@prisma/client';
 import { ConversationsRepository, InboxFilters } from './conversations.repository';
 import { ConversationFsmService } from './conversation-fsm.service';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
@@ -22,9 +22,21 @@ import { AiAgentRunnerService } from '../../ai-agents/runner/agent-runner.servic
 import { SegmentReadService } from '../../segments/segment-read.service';
 import { ProjectsService } from '../../projects/projects.service';
 import { deriveGroupJid } from '../../segments/group-jid.util';
+import { ZappfyHttpClient } from '../../channel-hub/adapters/zappfy/zappfy.http-client';
+import { ZappfyContactEnricherService } from '../../channel-hub/adapters/zappfy/zappfy-contact-enricher.service';
 
 const SYNC_MESSAGE_PAGE_SIZE = 50;
 const SYNC_MAX_PAGES = 4;
+
+/** `554599626191` -> `+55 45 9962-6191`. Só pra exibir quem não é contato. */
+function formatPhone(phone: string): string {
+  if (phone.startsWith('55') && phone.length >= 12) {
+    const ddd = phone.slice(2, 4);
+    const rest = phone.slice(4);
+    return `+55 ${ddd} ${rest.slice(0, -4)}-${rest.slice(-4)}`;
+  }
+  return `+${phone}`;
+}
 
 @Injectable()
 export class ConversationsService {
@@ -42,7 +54,73 @@ export class ConversationsService {
     private readonly agentRunner: AiAgentRunnerService,
     private readonly segmentRead: SegmentReadService,
     private readonly projects: ProjectsService,
+    private readonly zappfyHttp: ZappfyHttpClient,
+    private readonly contactEnricher: ZappfyContactEnricherService,
   ) {}
+
+  /**
+   * Participantes de uma conversa de grupo, pro autocomplete de menção.
+   * O provider só devolve telefone e LID, então o nome vem dos nossos
+   * contatos; sem match, cai no próprio telefone formatado.
+   * Retorna [] quando não é grupo ou o canal não é Zappfy — o front trata
+   * lista vazia como "sem menção disponível".
+   */
+  async listGroupParticipants(
+    id: string,
+    organizationId: string,
+    access: ChannelAccess = 'ALL',
+  ): Promise<Array<{ phone: string; name: string; avatarUrl: string | null; isAdmin: boolean }>> {
+    const conversation = await this.findOne(id, organizationId, access);
+    if (!conversation.isGroup) return [];
+
+    const groupJid = deriveGroupJid(conversation as any);
+    if (!groupJid) return [];
+
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: conversation.channelId, deletedAt: null },
+    });
+    if (!channel || channel.type !== ChannelType.WHATSAPP_ZAPPFY) return [];
+
+    let participants: Array<{ phone: string; isAdmin: boolean }>;
+    try {
+      participants = await this.zappfyHttp.fetchGroupParticipants(
+        channel,
+        groupJid,
+      );
+    } catch (err: any) {
+      // Grupo que saímos, provider fora do ar: menção some, o resto do chat
+      // continua funcionando.
+      this.logger.warn(
+        `Falha ao buscar participantes de ${groupJid}: ${err.message}`,
+      );
+      return [];
+    }
+    if (!participants.length) return [];
+
+    const phones = participants.map((p) => p.phone);
+    const rows = await this.prisma.$queryRaw<
+      Array<{ ph: string; name: string | null; avatar_url: string | null }>
+    >`
+      SELECT regexp_replace(phone, '[^0-9]', '', 'g') AS ph, name, avatar_url
+      FROM contacts
+      WHERE organization_id = ${organizationId}
+        AND phone IS NOT NULL
+        AND regexp_replace(phone, '[^0-9]', '', 'g') = ANY(${phones}::text[])
+    `;
+    const byPhone = new Map(rows.map((r) => [r.ph, r]));
+
+    return participants.map((p) => {
+      const known = byPhone.get(p.phone);
+      return {
+        phone: p.phone,
+        name: known?.name || formatPhone(p.phone),
+        // Foto de quem manda mensagem no grupo: sai daqui quando o
+        // participante também é um contato nosso.
+        avatarUrl: known?.avatar_url ?? null,
+        isAdmin: p.isAdmin,
+      };
+    });
+  }
 
   /**
    * Anexa o `project` (resumo) às conversas de grupo — uma consulta em lote por
@@ -196,7 +274,30 @@ export class ConversationsService {
     }
     this.channelAccess.assertChannelAccess(access, conversation.channelId);
     await this.attachProjects(organizationId, [conversation as any]);
+    // Abrir a conversa é o gatilho pra revalidar a foto (contato ou grupo).
+    // Fire-and-forget: a resposta não espera o provider.
+    void this.refreshAvatar(conversation as any);
     return conversation;
+  }
+
+  /**
+   * Rebusca a foto de perfil quando está velha/ausente. Silencioso por
+   * natureza — foto é enfeite, nunca deve atrapalhar abrir a conversa.
+   */
+  private async refreshAvatar(conversation: any): Promise<void> {
+    try {
+      const channel = await this.prisma.channel.findFirst({
+        where: { id: conversation.channelId, deletedAt: null },
+      });
+      if (!channel || channel.type !== ChannelType.WHATSAPP_ZAPPFY) return;
+      const externalId = conversation.contact?.channels?.find(
+        (ch: any) => ch.channelId === conversation.channelId,
+      )?.externalId;
+      if (!externalId) return;
+      await this.contactEnricher.enrich(channel, externalId);
+    } catch (err: any) {
+      this.logger.debug(`Refresh de avatar falhou: ${err.message}`);
+    }
   }
 
   async update(
