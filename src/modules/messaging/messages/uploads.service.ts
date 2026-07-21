@@ -103,6 +103,55 @@ export class UploadsService {
    * for documents) — useful for the UI to render a familiar filename and
    * for the browser's "Save As" dialog to default sensibly.
    */
+  /**
+   * Foto de perfil (contato, grupo ou participante). Nome de arquivo
+   * determinístico pela `key` (id do contato), por dois motivos: a URL
+   * gravada em `contacts.avatar_url` continua válida depois de um redeploy,
+   * e o refresh sobrescreve em vez de acumular arquivo órfão.
+   *
+   * O diretório de uploads não é volume persistente, então o arquivo pode
+   * sumir num deploy — quem chama trata isso revalidando (`avatarFileExists`).
+   */
+  async saveAvatar(input: {
+    key: string;
+    buffer: Buffer;
+    mimeType: string;
+  }): Promise<string> {
+    if (!input?.buffer?.byteLength) {
+      throw new BadRequestException('Empty avatar');
+    }
+    const mime = (input.mimeType || 'image/jpeg').split(';')[0].trim();
+    if (!mime.startsWith('image/')) {
+      throw new BadRequestException(`Avatar must be an image, got ${mime}`);
+    }
+    const dir = path.join(this.rootDir, 'avatars');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    const safeKey = input.key.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `${safeKey}${this.extFor(mime, null)}`;
+    await fs.promises.writeFile(path.join(dir, filename), input.buffer);
+    return `${this.publicBaseUrl}/avatars/${filename}`;
+  }
+
+  /**
+   * Idade em dias do arquivo por trás de uma URL de avatar, ou `null` se ele
+   * não existe (nunca baixado, ou perdido num redeploy). Serve de "quando
+   * sincronizamos pela última vez" sem precisar de coluna nova no banco.
+   */
+  avatarAgeInDays(avatarUrl: string | null | undefined): number | null {
+    if (!avatarUrl) return null;
+    const marker = `${this.publicBaseUrl}/avatars/`;
+    if (!avatarUrl.startsWith(marker)) return null;
+    const filename = avatarUrl.slice(marker.length).split('?')[0];
+    if (!filename || filename.includes('/')) return null;
+    try {
+      const { mtimeMs } = fs.statSync(path.join(this.rootDir, 'avatars', filename));
+      return (Date.now() - mtimeMs) / 86_400_000;
+    } catch {
+      return null;
+    }
+  }
+
   async saveInboundMedia(input: {
     buffer: Buffer;
     mimeType: string;

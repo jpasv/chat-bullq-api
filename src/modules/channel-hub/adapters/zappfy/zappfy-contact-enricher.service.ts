@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Channel } from '@prisma/client';
 import { PrismaService } from '../../../../database/prisma.service';
 import { ZappfyHttpClient } from './zappfy.http-client';
+import { UploadsService } from '../../../messaging/messages/uploads.service';
 
 /**
  * Pulls profile picture (and best-effort name) for a WhatsApp contact via
@@ -12,13 +13,20 @@ import { ZappfyHttpClient } from './zappfy.http-client';
 @Injectable()
 export class ZappfyContactEnricherService {
   private readonly logger = new Logger(ZappfyContactEnricherService.name);
+  /** Depois disso a cópia local da foto é considerada velha e rebuscada. */
+  private static readonly AVATAR_TTL_DAYS = 7;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly httpClient: ZappfyHttpClient,
+    private readonly uploads: UploadsService,
   ) {}
 
-  async enrich(channel: Channel, externalContactId: string): Promise<void> {
+  async enrich(
+    channel: Channel,
+    externalContactId: string,
+    force = false,
+  ): Promise<void> {
     try {
       const contactChannel = await this.prisma.contactChannel.findUnique({
         where: {
@@ -31,16 +39,29 @@ export class ZappfyContactEnricherService {
       });
       if (!contactChannel) return;
 
-      // Skip if already enriched. Foto + nome do contato podem mudar no
-      // WhatsApp, mas pra MVP vamos só preencher uma vez.
-      if (contactChannel.contact.avatarUrl) return;
+      // Rebusca quando: nunca teve foto, o arquivo sumiu (redeploy limpa o
+      // diretório, que não é volume) ou a cópia local já passou do prazo.
+      const ageDays = this.uploads.avatarAgeInDays(
+        contactChannel.contact.avatarUrl,
+      );
+      const stale =
+        ageDays === null || ageDays > ZappfyContactEnricherService.AVATAR_TTL_DAYS;
+      if (contactChannel.contact.avatarUrl && !stale && !force) return;
 
       const chat = await this.fetchChat(channel, externalContactId);
       if (!chat) return;
 
-      const avatarUrl: string | undefined = chat.wa_profilePicUrl || undefined;
+      // `wa_profilePicUrl` NÃO existe na resposta do Zappfy — era isso que
+      // deixava todo mundo sem foto. Os campos reais são `image` (original)
+      // e `imagePreview` (reduzido). O /chat/find nem sempre traz uma URL
+      // válida, então baixamos via /chat/details, que revalida.
       const profileName: string | undefined =
         chat.wa_contactName || chat.wa_name || undefined;
+      const avatarUrl = await this.downloadAvatar(
+        channel,
+        externalContactId,
+        contactChannel.contactId,
+      );
 
       if (!avatarUrl && !profileName) return;
 
@@ -79,6 +100,39 @@ export class ZappfyContactEnricherService {
       this.logger.warn(
         `Zappfy contact enrichment failed for ${externalContactId}: ${err.message}`,
       );
+    }
+  }
+
+  /**
+   * Busca a foto no provider e guarda no nosso storage, devolvendo a URL
+   * local. Servimos do nosso domínio porque a URL do WhatsApp vence em ~10
+   * dias (e aí o `<img>` do cliente tomaria 403).
+   */
+  private async downloadAvatar(
+    channel: Channel,
+    externalContactId: string,
+    contactId: string,
+  ): Promise<string | undefined> {
+    try {
+      const { url } = await this.httpClient.fetchProfilePicture(
+        channel,
+        externalContactId.replace(/@s\.whatsapp\.net$/, ''),
+      );
+      if (!url) return undefined;
+      const buffer = await this.httpClient.getMediaBuffer(channel, url);
+      if (!buffer?.byteLength) return undefined;
+      return await this.uploads.saveAvatar({
+        key: contactId,
+        buffer,
+        mimeType: 'image/jpeg',
+      });
+    } catch (err: any) {
+      // Contato sem foto, foto restrita por privacidade ou provider fora:
+      // seguimos sem avatar, a UI cai nas iniciais.
+      this.logger.debug(
+        `Sem avatar pra ${externalContactId}: ${err.message}`,
+      );
+      return undefined;
     }
   }
 

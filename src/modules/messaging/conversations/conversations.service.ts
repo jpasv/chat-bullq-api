@@ -23,6 +23,7 @@ import { SegmentReadService } from '../../segments/segment-read.service';
 import { ProjectsService } from '../../projects/projects.service';
 import { deriveGroupJid } from '../../segments/group-jid.util';
 import { ZappfyHttpClient } from '../../channel-hub/adapters/zappfy/zappfy.http-client';
+import { ZappfyContactEnricherService } from '../../channel-hub/adapters/zappfy/zappfy-contact-enricher.service';
 
 const SYNC_MESSAGE_PAGE_SIZE = 50;
 const SYNC_MAX_PAGES = 4;
@@ -54,6 +55,7 @@ export class ConversationsService {
     private readonly segmentRead: SegmentReadService,
     private readonly projects: ProjectsService,
     private readonly zappfyHttp: ZappfyHttpClient,
+    private readonly contactEnricher: ZappfyContactEnricherService,
   ) {}
 
   /**
@@ -67,7 +69,7 @@ export class ConversationsService {
     id: string,
     organizationId: string,
     access: ChannelAccess = 'ALL',
-  ): Promise<Array<{ phone: string; name: string; isAdmin: boolean }>> {
+  ): Promise<Array<{ phone: string; name: string; avatarUrl: string | null; isAdmin: boolean }>> {
     const conversation = await this.findOne(id, organizationId, access);
     if (!conversation.isGroup) return [];
 
@@ -96,20 +98,28 @@ export class ConversationsService {
     if (!participants.length) return [];
 
     const phones = participants.map((p) => p.phone);
-    const rows = await this.prisma.$queryRaw<Array<{ ph: string; name: string }>>`
-      SELECT regexp_replace(phone, '[^0-9]', '', 'g') AS ph, name
+    const rows = await this.prisma.$queryRaw<
+      Array<{ ph: string; name: string | null; avatar_url: string | null }>
+    >`
+      SELECT regexp_replace(phone, '[^0-9]', '', 'g') AS ph, name, avatar_url
       FROM contacts
       WHERE organization_id = ${organizationId}
-        AND phone IS NOT NULL AND name IS NOT NULL
+        AND phone IS NOT NULL
         AND regexp_replace(phone, '[^0-9]', '', 'g') = ANY(${phones}::text[])
     `;
-    const nameByPhone = new Map(rows.map((r) => [r.ph, r.name]));
+    const byPhone = new Map(rows.map((r) => [r.ph, r]));
 
-    return participants.map((p) => ({
-      phone: p.phone,
-      name: nameByPhone.get(p.phone) || formatPhone(p.phone),
-      isAdmin: p.isAdmin,
-    }));
+    return participants.map((p) => {
+      const known = byPhone.get(p.phone);
+      return {
+        phone: p.phone,
+        name: known?.name || formatPhone(p.phone),
+        // Foto de quem manda mensagem no grupo: sai daqui quando o
+        // participante também é um contato nosso.
+        avatarUrl: known?.avatar_url ?? null,
+        isAdmin: p.isAdmin,
+      };
+    });
   }
 
   /**
@@ -264,7 +274,30 @@ export class ConversationsService {
     }
     this.channelAccess.assertChannelAccess(access, conversation.channelId);
     await this.attachProjects(organizationId, [conversation as any]);
+    // Abrir a conversa é o gatilho pra revalidar a foto (contato ou grupo).
+    // Fire-and-forget: a resposta não espera o provider.
+    void this.refreshAvatar(conversation as any);
     return conversation;
+  }
+
+  /**
+   * Rebusca a foto de perfil quando está velha/ausente. Silencioso por
+   * natureza — foto é enfeite, nunca deve atrapalhar abrir a conversa.
+   */
+  private async refreshAvatar(conversation: any): Promise<void> {
+    try {
+      const channel = await this.prisma.channel.findFirst({
+        where: { id: conversation.channelId, deletedAt: null },
+      });
+      if (!channel || channel.type !== ChannelType.WHATSAPP_ZAPPFY) return;
+      const externalId = conversation.contact?.channels?.find(
+        (ch: any) => ch.channelId === conversation.channelId,
+      )?.externalId;
+      if (!externalId) return;
+      await this.contactEnricher.enrich(channel, externalId);
+    } catch (err: any) {
+      this.logger.debug(`Refresh de avatar falhou: ${err.message}`);
+    }
   }
 
   async update(

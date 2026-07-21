@@ -70,6 +70,28 @@ export class ZappfyHttpClient {
   }
 
   /**
+   * Foto de perfil de um contato ou grupo, com o nome de exibição de brinde.
+   *
+   * Detalhe que custou caro: sem mandar `preview` no corpo, o Zappfy devolve
+   * a URL que ele tem em cache, que costuma estar vencida (o CDN responde
+   * 403). Mandando o campo, ele revalida e devolve uma URL boa por ~10 dias.
+   * Serve tanto pra número (`5545...`) quanto pra JID de grupo (`...@g.us`).
+   */
+  async fetchProfilePicture(
+    channel: Channel,
+    numberOrJid: string,
+  ): Promise<{ url: string | null; name: string | null }> {
+    const chat = await this.sendRequest(channel, '/chat/details', {
+      number: numberOrJid,
+      preview: false,
+    });
+    return {
+      url: chat?.image || chat?.imagePreview || null,
+      name: chat?.wa_contactName || chat?.wa_name || chat?.name || null,
+    };
+  }
+
+  /**
    * Participantes de um grupo. O Zappfy devolve cada um com LID e telefone
    * (`DisplayName` vem vazio na prática), então quem resolve o nome é o
    * caller, cruzando o telefone com os contatos que já temos.
