@@ -4,7 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bullmq';
 import { Channel, ChannelType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../database/prisma.service';
-import { GmailHttpClient, GmailMessageStub } from './gmail.http-client';
+import {
+  GmailHttpClient,
+  GmailMessage,
+  GmailMessageStub,
+} from './gmail.http-client';
 import { GmailMessageMapper } from './gmail.message-mapper';
 import {
   GMAIL_INITIAL_BACKFILL_MAX_DEFAULT,
@@ -139,7 +143,23 @@ export class GmailPollingCron extends WorkerHost implements OnModuleInit {
     let maxInternalDate = cfg.lastInternalDate ?? 0;
 
     for (const stub of candidates) {
-      const full = await this.httpClient.getMessage(channel, stub.id, 'full');
+      let full: GmailMessage;
+      try {
+        full = await this.httpClient.getMessage(channel, stub.id, 'full');
+      } catch (err: any) {
+        if (err?.response?.status === 404) {
+          // A mensagem sumiu entre o list e o get (apagada de vez, ou movida
+          // pra outra conta/label que perdemos acesso). Sem esse skip a
+          // exceção aborta o canal ANTES do update do watermark lá embaixo,
+          // e o tick seguinte re-varre o MESMO id — o canal fica parado pra
+          // sempre num 404 por minuto (aconteceu em financeiro@/produtos@).
+          this.logger.warn(
+            `Gmail message ${stub.id} não existe mais (404) no canal ${channel.id} — pulando`,
+          );
+          continue;
+        }
+        throw err;
+      }
       // history.list às vezes entrega o stub sem labels — re-checa no full.
       if ((full.labelIds ?? []).some((l) => GMAIL_SKIP_LABELS.has(l))) {
         continue;

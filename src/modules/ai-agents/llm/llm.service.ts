@@ -99,9 +99,39 @@ export class LlmService {
       } as any);
     } catch (err: unknown) {
       this.handleSakanaError(err, modelId, tools, messages);
-      throw new InternalServerErrorException(
-        `LLM provider error: ${this.errorMessage(err)}`,
-      );
+
+      // Rede de segurança: 400 com imagem no payload quase sempre é o
+      // provider não conseguindo baixar/decodificar a URL (arquivo que
+      // sumiu, host fora, formato recusado). Perder a visão de uma imagem
+      // velha é infinitamente melhor que o agente não responder — refaz a
+      // chamada UMA vez só com o texto.
+      const stripped = this.stripImageParts(messages);
+      if ((err as { status?: number })?.status === 400 && stripped) {
+        this.logger.warn(
+          `LLM 400 com imagem no payload — retry sem os image blocks [sakana/${modelId}]`,
+        );
+        try {
+          response = await this.client.chat.completions.create({
+            model: modelId,
+            messages: stripped as any,
+            max_tokens: req.maxTokens ?? 2048,
+            temperature: req.temperature ?? 0.7,
+            ...(tools && tools.length > 0 ? { tools: tools as any } : {}),
+            ...(req.cacheKey
+              ? { prompt_cache_key: req.cacheKey, prompt_cache_retention: '24h' }
+              : {}),
+            ...(this.sanitizeModelParams(req.modelParams) as object),
+          } as any);
+        } catch (retryErr: unknown) {
+          throw new InternalServerErrorException(
+            `LLM provider error: ${this.errorMessage(retryErr)}`,
+          );
+        }
+      } else {
+        throw new InternalServerErrorException(
+          `LLM provider error: ${this.errorMessage(err)}`,
+        );
+      }
     }
 
     if ('tee' in response) {
@@ -524,6 +554,39 @@ export class LlmService {
         );
       }
     }
+  }
+
+  /**
+   * Devolve uma cópia das mensagens sem nenhum bloco `image_url` (cada um
+   * vira um marcador textual), ou null quando não havia imagem nenhuma —
+   * nesse caso o retry não faria diferença.
+   */
+  private stripImageParts(messages: OpenAiMessage[]): OpenAiMessage[] | null {
+    let found = false;
+    const out = messages.map((message) => {
+      if (!Array.isArray(message.content)) return message;
+
+      const parts = (message.content as Array<Record<string, unknown>>).map(
+        (part) => {
+          if (part?.type !== 'image_url') return part;
+          found = true;
+          return {
+            type: 'text',
+            text: '[imagem enviada — não foi possível carregar pra eu visualizar]',
+          };
+        },
+      );
+
+      const onlyText = parts.every((p) => p.type === 'text');
+      return {
+        ...message,
+        content: onlyText
+          ? parts.map((p) => String(p.text ?? '')).join('\n')
+          : parts,
+      } as OpenAiMessage;
+    });
+
+    return found ? out : null;
   }
 
   private errorMessage(err: unknown): string {

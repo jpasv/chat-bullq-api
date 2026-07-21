@@ -213,6 +213,43 @@ describe('GmailPollingCron.process', () => {
     expect(result.ingested).toBe(1);
   });
 
+  it('mensagem apagada (404 no messages.get) é pulada e o watermark avança', async () => {
+    // Regressão: antes, o 404 subia e abortava o canal ANTES do update do
+    // watermark — o tick seguinte re-varria o mesmo id e a caixa ficava
+    // parada indefinidamente (financeiro@/produtos@ pararam 6 dias assim).
+    const gone: any = new Error('Requested entity was not found.');
+    gone.response = { status: 404 };
+    const { cron, prisma, inboundQueue, httpClient } = buildCron({
+      channels: [
+        channelRow({ email: 'sup@x.com', refreshToken: 'rt', lastHistoryId: '10' }),
+      ],
+      history: {
+        history: [
+          { id: '11', messagesAdded: [{ message: { id: 'dead', threadId: 't1', labelIds: ['INBOX'] } }] },
+          { id: '12', messagesAdded: [{ message: { id: 'alive', threadId: 't2', labelIds: ['INBOX'] } }] },
+        ],
+        historyId: '13',
+      },
+      messages: { alive: gmailMessage('alive', ['INBOX']) },
+    });
+    httpClient.getMessage = jest.fn((_ch: any, id: string) => {
+      if (id === 'dead') return Promise.reject(gone);
+      return Promise.resolve(gmailMessage('alive', ['INBOX']));
+    }) as any;
+
+    const result = await cron.process({} as any);
+
+    expect(result.ingested).toBe(1);
+    expect(inboundQueue.add).toHaveBeenCalledTimes(1);
+    expect(prisma.channel.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          config: expect.objectContaining({ lastHistoryId: '13' }),
+        }),
+      }),
+    );
+  });
+
   it('erro num canal não derruba a varredura dos outros', async () => {
     const boom: any = new Error('token revogado');
     boom.response = { status: 400 };

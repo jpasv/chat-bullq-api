@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Message } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PrismaService } from '../../../database/prisma.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
 
@@ -18,10 +21,19 @@ import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.regist
 export class MediaUrlResolverService {
   private readonly logger = new Logger(MediaUrlResolverService.name);
 
+  /** Diretório físico servido em `/api/v1/uploads` (mesmo cálculo do main.ts). */
+  private readonly uploadsDir: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly adapterRegistry: ChannelAdapterRegistry,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    this.uploadsDir = path.resolve(
+      this.config.get<string>('UPLOADS_DIR') ||
+        path.join(process.cwd(), 'uploads'),
+    );
+  }
 
   /**
    * Garante que cada Message recebida (com type=IMAGE/VIDEO/STICKER/
@@ -57,9 +69,21 @@ export class MediaUrlResolverService {
         const cachedMime =
           typeof content.mimeType === 'string' ? content.mimeType : undefined;
 
-        if (cachedUrl) {
+        if (cachedUrl && this.isStillServable(cachedUrl)) {
           out.set(message.id, { url: cachedUrl, mimeType: cachedMime });
           continue;
+        }
+
+        if (cachedUrl) {
+          // URL nossa apontando pra arquivo que não existe mais no disco
+          // (upload perdido em troca de container). Mandar ela pro provider
+          // faz o download dele falhar e a API devolver 400 "invalid
+          // request" — o run INTEIRO morre por causa de uma imagem velha.
+          // Tenta re-hospedar a partir do provedor; se não der, a mensagem
+          // fica fora do map e o prompt cai no fallback textual.
+          this.logger.warn(
+            `media-url-resolver: mediaUrl morta pra msg=${message.id} (${cachedUrl}) — tentando re-resolver`,
+          );
         }
 
         if (!message.externalId) continue;
@@ -124,5 +148,49 @@ export class MediaUrlResolverService {
     }
 
     return out;
+  }
+
+  /**
+   * Uma URL só é enviada ao provider se ele conseguir baixá-la. Pra mídia
+   * re-hospedada por nós isso é verificável em disco; pra URL de terceiro
+   * assumimos que está viva (não vale um HEAD por mensagem a cada run).
+   */
+  private isStillServable(url: string): boolean {
+    const localPath = this.localUploadPath(url);
+    if (!localPath) return true;
+    return fs.existsSync(localPath);
+  }
+
+  /**
+   * Traduz uma URL pública `/api/v1/uploads/...` no caminho físico dentro
+   * de UPLOADS_DIR. Retorna null quando a URL não é um upload local nosso.
+   */
+  private localUploadPath(url: string): string | null {
+    const marker = '/api/v1/uploads/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+
+    const appUrl = (this.config.get<string>('APP_URL') || '').replace(
+      /\/$/,
+      '',
+    );
+    if (appUrl && !url.startsWith(`${appUrl}${marker}`)) {
+      // Mesmo path, outro host: não é o nosso disco.
+      return null;
+    }
+
+    let relative = url.slice(idx + marker.length).split(/[?#]/)[0];
+    try {
+      relative = decodeURIComponent(relative);
+    } catch {
+      // Mantém cru — pior caso o existsSync dá false e a gente re-resolve.
+    }
+
+    const full = path.resolve(this.uploadsDir, relative);
+    // Path traversal: só aceita o que fica dentro do diretório de uploads.
+    if (full !== this.uploadsDir && !full.startsWith(this.uploadsDir + path.sep)) {
+      return null;
+    }
+    return full;
   }
 }
