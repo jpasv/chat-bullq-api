@@ -495,6 +495,12 @@ export class ZappfyMessageMapper {
    * Enquete -> pergunta + opções com bullet.
    */
   private formatPoll(content: any, msg: any): string {
+    // Voto (PollUpdateMessage): o provider entrega a opção escolhida em
+    // `vote`, no topo da mensagem. Sem isso a bolha ficava vazia — e o voto
+    // é justamente a informação que interessa na conversa.
+    const vote = typeof msg?.vote === 'string' ? msg.vote.trim() : '';
+    if (vote) return `Votou: ${vote}`;
+
     const poll =
       content.pollCreationMessageV3 ||
       content.pollCreationMessage ||

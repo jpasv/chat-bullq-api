@@ -105,3 +105,28 @@ describe('ZappfyMessageMapper — convite de grupo', () => {
     expect(out?.content.text).toBe('Convite para participar do meu grupo no WhatsApp');
   });
 });
+
+describe('ZappfyMessageMapper — enquete', () => {
+  it('voto mostra a opção escolhida', () => {
+    const out = mapper.normalizeInbound(
+      event({ messageType: 'PollUpdateMessage', text: '', vote: 'CONTADOR', content: {} }),
+    );
+    expect(out?.content.text).toBe('Votou: CONTADOR');
+  });
+
+  it('criação continua mostrando pergunta e opções', () => {
+    const out = mapper.normalizeInbound(
+      event({
+        messageType: 'PollCreationMessage',
+        text: 'Vem no evento?',
+        content: {
+          pollCreationMessage: {
+            name: 'Vem no evento?',
+            options: [{ optionName: 'Sim' }, { optionName: 'Não' }],
+          },
+        },
+      }),
+    );
+    expect(out?.content.text).toBe('Enquete: Vem no evento?\n• Sim\n• Não');
+  });
+});
