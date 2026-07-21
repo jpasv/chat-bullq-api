@@ -204,6 +204,19 @@ export class ConversationsController {
     return this.service.findOne(id, orgId, access);
   }
 
+  @Get(':id/participants')
+  @ApiOperation({
+    summary:
+      'Participantes de uma conversa de grupo, pro autocomplete de menção (@). Vazio quando a conversa não é grupo.',
+  })
+  participants(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.listGroupParticipants(id, orgId, access);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Update conversation (assign, change status, department)' })
   update(

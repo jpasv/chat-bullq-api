@@ -159,11 +159,29 @@ export class ZappfyMessageMapper {
     const withReply = <T extends Record<string, any>>(p: T): T =>
       replyId ? ({ ...p, replyid: replyId } as T) : p;
 
+    // Menção em grupo: o Zappfy espera `mentions` como string separada por
+    // vírgula, ou o literal 'all'. Só faz sentido em grupo — mandar em 1:1 é
+    // ignorado pelo provider, mas evitamos poluir o payload.
+    const rawMentions = message.content.mentions;
+    const isGroupTarget = contactExternalId.endsWith('@g.us');
+    const mentions =
+      isGroupTarget && rawMentions
+        ? rawMentions === 'all'
+          ? 'all'
+          : [...new Set(rawMentions.map((m) => String(m).replace(/\D/g, '')))]
+              .filter(Boolean)
+              .join(',') || undefined
+        : undefined;
+    const withMentions = <T extends Record<string, any>>(p: T): T =>
+      mentions ? ({ ...p, mentions } as T) : p;
+    const withExtras = <T extends Record<string, any>>(p: T): T =>
+      withMentions(withReply(p));
+
     switch (message.type) {
       case MessageContentType.TEXT:
         return {
           endpoint: '/send/text',
-          payload: withReply({ number, text: message.content.text, delay: 1000 }),
+          payload: withExtras({ number, text: message.content.text, delay: 1000 }),
         };
 
       case MessageContentType.IMAGE:

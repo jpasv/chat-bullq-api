@@ -69,6 +69,28 @@ export class ZappfyHttpClient {
     });
   }
 
+  /**
+   * Participantes de um grupo. O Zappfy devolve cada um com LID e telefone
+   * (`DisplayName` vem vazio na prática), então quem resolve o nome é o
+   * caller, cruzando o telefone com os contatos que já temos.
+   */
+  async fetchGroupParticipants(
+    channel: Channel,
+    groupJid: string,
+  ): Promise<Array<{ phone: string; lid?: string; isAdmin: boolean }>> {
+    const info = await this.sendRequest(channel, '/group/info', {
+      groupjid: groupJid,
+    });
+    const participants = info?.Participants ?? info?.participants ?? [];
+    return participants
+      .map((p: any) => ({
+        phone: String(p?.PhoneNumber ?? '').replace(/@.*$/, ''),
+        lid: p?.LID ?? p?.JID ?? undefined,
+        isAdmin: !!(p?.IsAdmin || p?.IsSuperAdmin),
+      }))
+      .filter((p: { phone: string }) => !!p.phone);
+  }
+
   async configureWebhook(
     channel: Channel,
     url: string,
