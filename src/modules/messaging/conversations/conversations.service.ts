@@ -73,37 +73,60 @@ export class ConversationsService {
    * Enfileira a busca da foto das conversas que ainda estão sem, espaçando
    * uma da outra pra não estourar o limite do provider.
    *
-   * Só as primeiras da lista (as mais recentes) entram: é o que a pessoa
-   * está vendo. O `jobId` fixo por contato faz o inbox recarregado não
-   * empilhar a mesma busca, e o próprio enricher ignora quem já foi
-   * consultado hoje — então isso não vira tráfego repetido.
+   * São as conversas mais recentes da organização que ainda não foram
+   * tentadas hoje — cada abertura do inbox pega o lote seguinte, então em
+   * poucas rodadas a fila varre todo mundo que tem foto pra buscar. O
+   * `jobId` fixo por contato faz o inbox recarregado não empilhar a mesma
+   * busca.
    */
-  private async hydrateMissingAvatars(conversations: any[]): Promise<void> {
+  private async hydrateMissingAvatars(organizationId: string): Promise<void> {
     try {
-      const pending = conversations
-        .filter((c) => !c?.contact?.avatarUrl && c?.channel?.type === 'WHATSAPP_ZAPPFY')
-        .slice(0, AVATAR_HYDRATION_BATCH);
+      // A escolha de QUEM tentar não pode sair da página que está na tela:
+      // as conversas mais recentes sem foto costumam ser exatamente as que
+      // não têm foto nenhuma (perfil vazio ou privacidade), e elas ocupariam
+      // as vagas para sempre — a fila entregaria as primeiras dez e travava.
+      // Por isso descartamos aqui quem já foi consultado nas últimas 24h,
+      // o mesmo prazo que o enricher usa: assim cada rodada anda para frente.
+      const pending = await this.prisma.$queryRaw<
+        Array<{ channel_id: string; external_id: string }>
+      >`
+        SELECT conv.channel_id, cc.external_id
+        FROM conversations conv
+        JOIN contacts ct ON ct.id = conv.contact_id
+        JOIN contact_channels cc
+          ON cc.contact_id = ct.id AND cc.channel_id = conv.channel_id
+        JOIN channels ch ON ch.id = conv.channel_id
+        WHERE conv.organization_id = ${organizationId}
+          AND conv.deleted_at IS NULL
+          AND ch.type = 'WHATSAPP_ZAPPFY'
+          AND ch.deleted_at IS NULL
+          AND ct.deleted_at IS NULL
+          AND ct.avatar_url IS NULL
+          AND (
+            ct.metadata->>'avatarCheckedAt' IS NULL
+            OR (ct.metadata->>'avatarCheckedAt') < to_char(
+                 now() - interval '24 hours', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          )
+        ORDER BY conv.last_message_at DESC NULLS LAST
+        LIMIT ${AVATAR_HYDRATION_BATCH}
+      `;
 
       await Promise.all(
-        pending.map((conversation, index) => {
-          const link = conversation.contact?.channels?.find(
-            (cc: any) => cc.channelId === conversation.channelId,
-          );
-          if (!link?.externalId) return Promise.resolve();
-          return this.avatarQueue.add(
+        pending.map((row, index) =>
+          this.avatarQueue.add(
             'hydrate',
             {
-              channelId: conversation.channelId,
-              externalContactId: link.externalId,
+              channelId: row.channel_id,
+              externalContactId: row.external_id,
             },
             {
-              jobId: `avatar:${conversation.channelId}:${link.externalId}`,
+              jobId: `avatar:${row.channel_id}:${row.external_id}`,
               delay: index * AVATAR_HYDRATION_SPACING_MS,
               removeOnComplete: true,
               removeOnFail: true,
             },
-          );
-        }),
+          ),
+        ),
       );
     } catch (err: any) {
       // Foto é enfeite: se a fila estiver fora, o inbox continua igual.
@@ -315,8 +338,9 @@ export class ConversationsService {
 
     // Fora do caminho da resposta: quem abre o inbox dispara a busca das
     // fotos que faltam. Chega pela UI por websocket quando cada uma fica
-    // pronta — a lista não espera por isso.
-    void this.hydrateMissingAvatars(conversations as any[]);
+    // pronta — a lista não espera por isso. Só na primeira página: rolar a
+    // lista não é "entrar no sistema".
+    if (page === 1) void this.hydrateMissingAvatars(organizationId);
 
     return {
       conversations,
