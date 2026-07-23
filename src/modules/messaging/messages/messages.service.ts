@@ -4,10 +4,12 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  HttpException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
+  Channel,
   ChannelType,
   MessageDirection,
   MessageContentType,
@@ -15,7 +17,9 @@ import {
 } from '@prisma/client';
 import { MessagesRepository } from './messages.repository';
 import { SendMessageDto } from './dto/send-message.dto';
+import { ForwardMessageDto } from './dto/forward-message.dto';
 import { StartConversationDto } from '../conversations/dto/start-conversation.dto';
+import { MediaResolverService } from './media-resolver.service';
 import { PrismaService } from '../../../database/prisma.service';
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
 import {
@@ -42,6 +46,7 @@ export class MessagesService {
     private readonly segmentRead: SegmentReadService,
     private readonly contactResolver: ContactResolverService,
     private readonly conversationResolver: ConversationResolverService,
+    private readonly mediaResolver: MediaResolverService,
     @InjectQueue('outbound-messages') private readonly outboundQueue: Queue,
   ) {}
 
@@ -110,6 +115,12 @@ export class MessagesService {
     senderId: string,
     organizationId: string,
     access: ChannelAccess = 'ALL',
+    options?: {
+      /** Não prefixar `*Nome*\n` no texto — usado no forward (verbatim). */
+      skipSignature?: boolean;
+      /** Marca a nova Message como encaminhada (a UI renderiza "Encaminhada"). */
+      forwardedFrom?: { messageId: string; conversationId: string };
+    },
   ) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: dto.conversationId },
@@ -189,6 +200,22 @@ export class MessagesService {
       replyTo = { externalMessageId: dto.replyTo.externalMessageId };
     }
 
+    // metadata.replyTo é consumido pela UI pra renderizar a quote box em cima
+    // da bolha; metadata.forwardedFrom marca a bolha como "Encaminhada". Ambos
+    // são opcionais e independentes.
+    const metadata: Record<string, any> = {};
+    if (replyTo) {
+      metadata.replyTo = {
+        messageId: replyTo.messageId,
+        externalMessageId: replyTo.externalMessageId,
+        previewText: replyTo.previewText,
+        senderName: replyTo.senderName,
+      };
+    }
+    if (options?.forwardedFrom) {
+      metadata.forwardedFrom = options.forwardedFrom;
+    }
+
     const message = await this.repository.create({
       conversationId: conversation.id,
       direction: MessageDirection.OUTBOUND,
@@ -196,19 +223,7 @@ export class MessagesService {
       content: dto.content,
       status: MessageStatus.QUEUED,
       senderId,
-      // metadata.replyTo é consumido pela UI pra renderizar a quote box
-      // em cima da bolha — sem isso o quote só apareceria no app do
-      // cliente (WhatsApp/IG), nunca no nosso inbox.
-      metadata: replyTo
-        ? {
-            replyTo: {
-              messageId: replyTo.messageId,
-              externalMessageId: replyTo.externalMessageId,
-              previewText: replyTo.previewText,
-              senderName: replyTo.senderName,
-            },
-          }
-        : undefined,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
 
     // Auto-pause the AI on this conversation when a human replies. Behavior
@@ -333,8 +348,8 @@ export class MessagesService {
     let outboundContent = dto.content;
     // Assina com o nome de quem enviou. Vale também em conversa individual:
     // vários atendentes dividem o mesmo número, então sem isso o contato não
-    // tem como saber com quem falou.
-    if (dto.type === 'TEXT' && outboundContent.text) {
+    // tem como saber com quem falou. Forward pula a assinatura (verbatim).
+    if (!options?.skipSignature && dto.type === 'TEXT' && outboundContent.text) {
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
         select: { name: true },
@@ -378,6 +393,290 @@ export class MessagesService {
     );
 
     return message;
+  }
+
+  /** Canais para os quais é permitido encaminhar (só WhatsApp). */
+  private static readonly FORWARD_TARGET_TYPES: ChannelType[] = [
+    ChannelType.WHATSAPP_ZAPPFY,
+    ChannelType.WHATSAPP_OFFICIAL,
+  ];
+
+  /**
+   * URL de mídia que o browser não toca e que o provider de destino não
+   * conseguiria rebaixar: `.enc` da CDN da Meta. Mesma regra do front
+   * (`use-resolved-media.ts`).
+   */
+  private looksUnplayableMedia(url: string): boolean {
+    return /\.enc(\?|$)/i.test(url) || /mmg\.whatsapp\.net/i.test(url);
+  }
+
+  /**
+   * Encaminha uma mensagem existente para uma ou mais conversas WhatsApp e/ou
+   * números novos. Reconstrói o `content` da origem e reusa o `send()` de
+   * sempre (fila outbound, realtime, auto-assign), marcando a nova mensagem
+   * como encaminhada. Falha por-destino é isolada em `failed` — um destino
+   * ruim não derruba os outros.
+   */
+  async forward(
+    messageId: string,
+    dto: ForwardMessageDto,
+    senderId: string,
+    organizationId: string,
+    access: ChannelAccess = 'ALL',
+  ): Promise<{
+    sent: Awaited<ReturnType<MessagesService['send']>>[];
+    failed: Array<{ target: string; reason: string }>;
+  }> {
+    const conversationIds = dto.conversationIds ?? [];
+    const contacts = dto.contacts ?? [];
+    if (conversationIds.length === 0 && contacts.length === 0) {
+      throw new BadRequestException(
+        'Informe ao menos uma conversa ou número de destino.',
+      );
+    }
+
+    const source = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: {
+        conversation: {
+          select: {
+            id: true,
+            organizationId: true,
+            channelId: true,
+            channel: true,
+          },
+        },
+      },
+    });
+    if (!source) throw new NotFoundException('Message not found');
+    if (source.conversation.organizationId !== organizationId) {
+      throw new ForbiddenException();
+    }
+    this.channelAccess.assertChannelAccess(access, source.conversation.channelId);
+
+    // Reconstrói o payload encaminhável (resolve mídia .enc se preciso).
+    const payload = await this.buildForwardPayload(
+      { id: source.id, type: source.type, externalId: source.externalId },
+      source.conversation.channel,
+      (source.content ?? {}) as Record<string, any>,
+      organizationId,
+      access,
+    );
+
+    const failed: Array<{ target: string; reason: string }> = [];
+    const targetConversationIds: string[] = [];
+
+    // Destinos: conversas existentes (validando canal WhatsApp).
+    for (const conversationId of conversationIds) {
+      try {
+        const conv = await this.prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: { channel: true },
+        });
+        if (!conv) throw new NotFoundException('Conversa de destino não encontrada');
+        if (conv.organizationId !== organizationId) throw new ForbiddenException();
+        this.channelAccess.assertChannelAccess(access, conv.channelId);
+        this.assertWhatsappTarget(conv.channel.type);
+        targetConversationIds.push(conv.id);
+      } catch (err) {
+        failed.push({ target: conversationId, reason: errorMessage(err) });
+      }
+    }
+
+    // Destinos: números novos (mesmo fluxo do startConversation).
+    for (const contact of contacts) {
+      const label = contact.phone || contact.channelId;
+      try {
+        const channel = await this.prisma.channel.findUnique({
+          where: { id: contact.channelId },
+        });
+        if (!channel) throw new NotFoundException('Canal de destino não encontrado');
+        if (channel.organizationId !== organizationId) throw new ForbiddenException();
+        this.channelAccess.assertChannelAccess(access, channel.id);
+        this.assertWhatsappTarget(channel.type);
+
+        const resolvedContact = await this.contactResolver.resolveManual(
+          organizationId,
+          channel.id,
+          channel.type,
+          { phone: contact.phone, name: contact.name },
+        );
+        const resolvedConversation =
+          await this.conversationResolver.resolveForOperator(
+            organizationId,
+            channel.id,
+            resolvedContact.contactId,
+            senderId,
+          );
+        targetConversationIds.push(resolvedConversation.conversationId);
+      } catch (err) {
+        failed.push({ target: label, reason: errorMessage(err) });
+      }
+    }
+
+    // Deduplica destinos (dois contatos podem resolver na mesma conversa).
+    const uniqueTargets = [...new Set(targetConversationIds)];
+
+    const sent: Awaited<ReturnType<MessagesService['send']>>[] = [];
+    for (const conversationId of uniqueTargets) {
+      try {
+        const msg = await this.send(
+          { conversationId, type: payload.type, content: payload.content },
+          senderId,
+          organizationId,
+          access,
+          {
+            skipSignature: true,
+            forwardedFrom: {
+              messageId: source.id,
+              conversationId: source.conversation.id,
+            },
+          },
+        );
+        sent.push(msg);
+      } catch (err) {
+        failed.push({ target: conversationId, reason: errorMessage(err) });
+      }
+    }
+
+    if (sent.length === 0) {
+      const reason = failed.map((f) => f.reason).join('; ') || 'destino inválido';
+      throw new BadRequestException(`Não foi possível encaminhar: ${reason}`);
+    }
+
+    this.logger.log(
+      `Message forwarded: source=${source.id} sent=${sent.length} failed=${failed.length} actor=${senderId}`,
+    );
+
+    return { sent, failed };
+  }
+
+  private assertWhatsappTarget(type: ChannelType): void {
+    if (!MessagesService.FORWARD_TARGET_TYPES.includes(type)) {
+      throw new BadRequestException(
+        'Só é possível encaminhar para conversas/números WhatsApp.',
+      );
+    }
+  }
+
+  /**
+   * Reconstrói `{ type, content }` a partir da mensagem de origem, pronto pra
+   * reenviar. Para mídia, garante uma `mediaUrl` que o provider de destino
+   * consiga baixar (resolve a `.enc` da Uazapi quando necessário).
+   */
+  private async buildForwardPayload(
+    source: { id: string; type: MessageContentType; externalId: string | null },
+    channel: Channel,
+    content: Record<string, any>,
+    organizationId: string,
+    access: ChannelAccess,
+  ): Promise<{ type: string; content: Record<string, any> }> {
+    switch (source.type) {
+      case MessageContentType.TEXT: {
+        const text = typeof content.text === 'string' ? content.text : '';
+        if (!text.trim()) {
+          throw new BadRequestException('Mensagem de texto sem conteúdo pra encaminhar.');
+        }
+        // `mentions` de propósito fora: só faziam sentido no grupo de origem.
+        return { type: MessageContentType.TEXT, content: { text } };
+      }
+
+      case MessageContentType.LOCATION:
+        return {
+          type: MessageContentType.LOCATION,
+          content: {
+            latitude: content.latitude,
+            longitude: content.longitude,
+            text: content.text,
+          },
+        };
+
+      case MessageContentType.IMAGE:
+      case MessageContentType.VIDEO:
+      case MessageContentType.AUDIO:
+      case MessageContentType.DOCUMENT:
+      case MessageContentType.STICKER: {
+        const mediaUrl = await this.resolveForwardMediaUrl(
+          source,
+          channel,
+          content,
+          organizationId,
+          access,
+        );
+        const forwarded: Record<string, any> = { mediaUrl };
+        if (content.mimeType) forwarded.mimeType = content.mimeType;
+        if (content.fileName) forwarded.fileName = content.fileName;
+        if (content.caption) forwarded.caption = content.caption;
+        return { type: source.type, content: forwarded };
+      }
+
+      case MessageContentType.REACTION:
+        throw new BadRequestException('Não dá pra encaminhar uma reação.');
+
+      // TEMPLATE / INTERACTIVE / SYSTEM: sem reenvio 1:1 possível. Encaminha
+      // a versão legível em texto quando existe.
+      default: {
+        const text = typeof content.text === 'string' ? content.text : '';
+        if (text.trim()) {
+          return { type: MessageContentType.TEXT, content: { text } };
+        }
+        throw new BadRequestException(
+          `Mensagens do tipo "${source.type}" não podem ser encaminhadas.`,
+        );
+      }
+    }
+  }
+
+  /**
+   * URL de mídia pronta pra reenviar. Reusa a `mediaUrl` já tocável (mídia que
+   * nós enviamos ou já resolvemos). Quando está vazia, usa o
+   * `MediaResolverService` (resolve + cacheia). Quando é `.enc` cacheada, força
+   * a resolução direto pelo adapter (o resolver devolveria a `.enc` do cache).
+   */
+  private async resolveForwardMediaUrl(
+    source: { id: string; externalId: string | null },
+    channel: Channel,
+    content: Record<string, any>,
+    organizationId: string,
+    access: ChannelAccess,
+  ): Promise<string> {
+    const current = typeof content.mediaUrl === 'string' ? content.mediaUrl : '';
+    if (current && !this.looksUnplayableMedia(current)) return current;
+
+    if (!current) {
+      const { url } = await this.mediaResolver.resolve(
+        source.id,
+        organizationId,
+        access,
+      );
+      if (url && !this.looksUnplayableMedia(url)) return url;
+    }
+
+    // Cache vazio/`.enc` → resolve direto pelo provider.
+    if (!source.externalId) {
+      throw new BadRequestException(
+        'Mídia ainda não sincronizada com o provider — tente de novo em alguns segundos.',
+      );
+    }
+    const adapter = this.adapterRegistry.getOutbound(channel.type);
+    if (!adapter.resolveInboundMediaUrl) {
+      throw new BadRequestException(
+        `Resolução de mídia não suportada para ${channel.type}.`,
+      );
+    }
+    const { fileUrl } = await adapter.resolveInboundMediaUrl(channel, {
+      externalMessageId: source.externalId,
+      mediaId: typeof content.mediaId === 'string' ? content.mediaId : undefined,
+      mimeType: typeof content.mimeType === 'string' ? content.mimeType : undefined,
+      originalFilename:
+        typeof content.fileName === 'string' ? content.fileName : undefined,
+    });
+    if (!fileUrl) {
+      throw new BadRequestException(
+        'Mídia da mensagem não pôde ser resolvida para encaminhar.',
+      );
+    }
+    return fileUrl;
   }
 
   /**
@@ -544,4 +843,18 @@ export class MessagesService {
       },
     };
   }
+}
+
+/** Mensagem legível de um erro qualquer, pro relatório de destinos do forward. */
+function errorMessage(err: unknown): string {
+  if (err instanceof HttpException) {
+    const res = err.getResponse();
+    if (typeof res === 'string') return res;
+    if (res && typeof res === 'object' && 'message' in res) {
+      const m = (res as { message: unknown }).message;
+      return Array.isArray(m) ? m.join(', ') : String(m);
+    }
+    return err.message;
+  }
+  return err instanceof Error ? err.message : String(err);
 }
