@@ -1,0 +1,89 @@
+# Infraestrutura de desenvolvimento local da API.
+#
+# Sobe os três serviços que a API espera em localhost. Credenciais e portas
+# são as mesmas do `.env.example` de propósito: copiar aquele arquivo para
+# `.env` deve bastar, sem editar nada de infraestrutura.
+#
+#   docker compose up -d
+#   docker compose down        # para (mantém os dados)
+#   docker compose down -v     # para e APAGA os volumes
+#
+# Não usar em produção: as senhas aqui são públicas.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chat-bullq-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bravy
+      POSTGRES_PASSWORD: bravy123
+      POSTGRES_DB: chat_bullq
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # `-d`/`-U` explícitos: sem eles o pg_isready testa o banco `bravy`,
+      # que não existe, e o healthcheck nunca fica saudável.
+      test: ['CMD-SHELL', 'pg_isready -U bravy -d chat_bullq']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: chat-bullq-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: chat-bullq-minio
+    restart: unless-stopped
+    environment:
+      # Correspondem a MINIO_ACCESS_KEY / MINIO_SECRET_KEY no .env da API.
+      MINIO_ROOT_USER: bravy
+      MINIO_ROOT_PASSWORD: bravy123minio
+    command: server /data --console-address ":9001"
+    ports:
+      - '9000:9000'   # API S3 — é esta que a aplicação usa
+      - '9001:9001'   # console web, para inspeção manual
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # O MinIO sobe sem bucket algum. Sem este passo o primeiro upload falha com
+  # NoSuchBucket. Roda uma vez e encerra — `docker compose ps` mostra "exited",
+  # o que é o esperado.
+  minio-bucket:
+    image: minio/mc:latest
+    container_name: chat-bullq-minio-bucket
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 bravy bravy123minio &&
+      mc mb --ignore-existing local/chat-bullq &&
+      echo 'bucket chat-bullq pronto'
+      "
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
