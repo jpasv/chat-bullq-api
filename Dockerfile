@@ -4,8 +4,8 @@ FROM node:20-alpine AS deps
 RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=development
-COPY package.json yarn.lock ./
-RUN corepack enable && yarn install --frozen-lockfile --production=false
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev
 
 FROM node:20-alpine AS builder
 RUN apk add --no-cache openssl
@@ -14,7 +14,7 @@ ENV NODE_ENV=development
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
-RUN yarn build
+RUN npm run build
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl curl tini
@@ -22,8 +22,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
 
-COPY package.json yarn.lock ./
-RUN corepack enable && yarn install --frozen-lockfile --production=true && yarn cache clean
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
