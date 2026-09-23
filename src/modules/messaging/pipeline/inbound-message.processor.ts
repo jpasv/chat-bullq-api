@@ -117,9 +117,10 @@ export class InboundMessageProcessor extends WorkerHost {
     const { channelId, organizationId, message, webhookEventId } =
       job.data as InboundJobData;
 
+    let claimed = false;
     try {
       // Atomic duplicate check: only the first worker proceeds.
-      const claimed = await this.idempotency.claimProcessing(
+      claimed = await this.idempotency.claimProcessing(
         message.externalMessageId,
         channelId,
       );
@@ -369,13 +370,15 @@ export class InboundMessageProcessor extends WorkerHost {
         `Inbound failed (channel=${channelId} ext=${message.externalMessageId}): ${err.message}`,
         err.stack,
       );
+      // Release only our own claim, even if recording the failure also fails.
+      if (claimed) {
+        await this.idempotency
+          .releaseClaim(message.externalMessageId, channelId)
+          .catch(() => undefined);
+      }
       if (webhookEventId) {
         await this.webhookEvents.markFailed(webhookEventId, err.message);
       }
-      // Release the claim so retries can try again — next attempt re-acquires.
-      await this.idempotency
-        .markProcessed(message.externalMessageId, channelId)
-        .catch(() => undefined);
       throw err;
     }
   }

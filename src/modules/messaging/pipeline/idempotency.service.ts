@@ -61,6 +61,15 @@ export class IdempotencyService implements OnModuleDestroy {
     return res === 'OK';
   }
 
+  /** Release a failed processing claim so the next attempt can retry. */
+  async releaseClaim(
+    externalMessageId: string,
+    channelId: string,
+  ): Promise<void> {
+    if (!externalMessageId) return;
+    await this.redis.del(this.key(channelId, externalMessageId));
+  }
+
   /** Post-hoc mark — only used when we SKIP the processing path but
    *  still want to short-circuit later duplicate webhooks (e.g. an outbound
    *  that was already persisted by MessagesService). */
