@@ -173,7 +173,7 @@ export class RealtimeGateway
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: data.conversationId },
-      select: { channelId: true, organizationId: true },
+      select: { channelId: true, organizationId: true, channel: { select: { deletedAt: true, organizationId: true } } },
     });
     if (!conv || conv.organizationId !== client.data.organizationId) {
       this.logger.warn(
@@ -185,18 +185,16 @@ export class RealtimeGateway
       });
       return;
     }
-    if (!this.channelAccess.isBypassRole(client.data.role)) {
-      const channelIds = (client.data.channelIds as string[] | undefined) ?? [];
-      if (!channelIds.includes(conv.channelId)) {
-        this.logger.warn(
-          `join:conversation rejected: user ${client.data.userId} has no grant on channel ${conv.channelId}`,
-        );
-        client.emit('join:conversation:error', {
-          conversationId: data.conversationId,
-          reason: 'no-channel-grant',
-        });
-        return;
-      }
+    // PRIVATE requires an explicit grant for every role. The handshake
+    // materializes ALL; also accept the sentinel, scoped to live org channels.
+    const channelIds = (client.data.channelIds as string[] | 'ALL' | undefined) ?? [];
+    if (conv.channel.deletedAt || conv.channel.organizationId !== client.data.organizationId ||
+        (channelIds !== 'ALL' && !channelIds.includes(conv.channelId))) {
+      client.emit('join:conversation:error', {
+        conversationId: data.conversationId,
+        reason: 'no-channel-grant',
+      });
+      return;
     }
     client.join(`conv:${data.conversationId}`);
     client.data.activeConversationId = data.conversationId;
