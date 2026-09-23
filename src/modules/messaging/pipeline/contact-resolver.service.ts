@@ -133,6 +133,39 @@ export class ContactResolverService {
     );
   }
 
+  /**
+   * Resolve/cria contato a partir do id externo do provider (ex.: IGSID de
+   * quem comentou num post). Usado pelo private reply de comentários, onde
+   * não há telefone nem email — só o id do Instagram.
+   */
+  async resolveByExternalId(
+    organizationId: string,
+    channelId: string,
+    externalContactId: string,
+    name?: string,
+  ): Promise<ResolvedContact> {
+    const find = () =>
+      this.prisma.contactChannel.findUnique({
+        where: { uq_contact_channel_external: { channelId, externalId: externalContactId } },
+      });
+
+    const existing = await find();
+    if (existing) {
+      return { contactId: existing.contactId, contactChannelId: existing.id, isNew: false };
+    }
+
+    return this.idempotency.withLock(
+      `contact:${channelId}:${externalContactId}`,
+      async () => {
+        const racer = await find();
+        if (racer) {
+          return { contactId: racer.contactId, contactChannelId: racer.id, isNew: false };
+        }
+        return this.createContact(organizationId, channelId, { externalContactId, name });
+      },
+    );
+  }
+
   /** Bloco de criação compartilhado por `resolve()` (inbound) e `resolveManual()` (operador). */
   private async createContact(
     organizationId: string,

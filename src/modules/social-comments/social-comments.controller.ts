@@ -38,6 +38,18 @@ export class SocialCommentsController {
     return this.service.reply(id, orgId, userId, access, dto.text);
   }
 
+  @Post(':id/private-reply')
+  @ApiOperation({ summary: 'Abre DM com o autor do comentário (Private Reply)' })
+  privateReply(
+    @Param('id') id: string,
+    @Body() dto: ReplyCommentDto,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.privateReply(id, orgId, userId, access, dto.text);
+  }
+
   @Patch(':id/hide')
   @ApiOperation({ summary: 'Oculta ou desoculta o comentário no Instagram' })
   hide(

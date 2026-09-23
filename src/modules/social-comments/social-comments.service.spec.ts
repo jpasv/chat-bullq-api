@@ -25,17 +25,30 @@ function build() {
     replyToComment: jest.fn().mockResolvedValue({ id: 'c2' }),
     deleteComment: jest.fn().mockResolvedValue(undefined),
     setCommentHidden: jest.fn().mockResolvedValue(undefined),
+    sendPrivateReply: jest.fn().mockResolvedValue({ recipient_id: '5550001', message_id: 'mid1' }),
   };
   const channelAccess = {
     hasAccess: jest.fn().mockReturnValue(true),
     assertChannelAccess: jest.fn(),
   };
-  const realtime = { emitToChannel: jest.fn() };
+  const realtime = { emitToChannel: jest.fn(), emitToConversation: jest.fn() };
+  const contactResolver = {
+    resolveByExternalId: jest.fn().mockResolvedValue({ contactId: 'ct1', contactChannelId: 'cc1', isNew: true }),
+  };
+  const conversationResolver = {
+    resolveForOperator: jest.fn().mockResolvedValue({ conversationId: 'conv1', status: 'OPEN', isNew: true, wasReopened: false }),
+  };
+  const messagesRepo = { create: jest.fn().mockResolvedValue({ id: 'msg1' }) };
+  const llm = { complete: jest.fn() };
+  (prisma as any).conversation = { update: jest.fn().mockResolvedValue({}) };
   const service = new SocialCommentsService(
     prisma as any, repo as any, http as any, channelAccess as any, realtime as any,
-    {} as any, {} as any, {} as any, {} as any,
+    contactResolver as any, conversationResolver as any, messagesRepo as any, llm as any,
   );
-  return { service, prisma, repo, http, channelAccess, realtime };
+  return {
+    service, prisma, repo, http, channelAccess, realtime,
+    contactResolver, conversationResolver, messagesRepo, llm,
+  };
 }
 
 describe('SocialCommentsService', () => {
@@ -107,6 +120,35 @@ describe('SocialCommentsService', () => {
       await service.remove('s1', 'org1', 'ALL');
       expect(http.deleteComment).toHaveBeenCalledWith(channel, 'c1');
       expect(repo.update).toHaveBeenCalledWith('s1', { status: 'DELETED' });
+    });
+  });
+
+  describe('privateReply', () => {
+    it('envia DM, cria contato/conversa/mensagem e grava conversationId', async () => {
+      const { service, http, contactResolver, conversationResolver, messagesRepo, repo, realtime } = build();
+
+      const out = await service.privateReply('s1', 'org1', 'u1', 'ALL', 'Oi Maria, te chamei no direct');
+
+      expect(http.sendPrivateReply).toHaveBeenCalledWith(channel, 'c1', 'Oi Maria, te chamei no direct');
+      expect(contactResolver.resolveByExternalId).toHaveBeenCalledWith('org1', 'ch1', '5550001', 'maria.s');
+      expect(conversationResolver.resolveForOperator).toHaveBeenCalledWith('org1', 'ch1', 'ct1', 'u1');
+      expect(messagesRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+        conversationId: 'conv1', direction: 'OUTBOUND', type: 'TEXT', status: 'SENT',
+        externalId: 'mid1', senderId: 'u1', content: { text: 'Oi Maria, te chamei no direct' },
+      }));
+      expect(repo.update).toHaveBeenCalledWith('s1', { privateReplyConversationId: 'conv1' });
+      expect(realtime.emitToChannel).toHaveBeenCalledWith('ch1', 'message:new', expect.objectContaining({ conversationId: 'conv1' }));
+      expect(out).toEqual({ conversationId: 'conv1' });
+    });
+
+    it('segunda tentativa: 409 com conversationId', async () => {
+      const { service, repo, http } = build();
+      repo.findById.mockResolvedValue({ ...root, privateReplyConversationId: 'conv0' });
+      await expect(service.privateReply('s1', 'org1', 'u1', 'ALL', 'x')).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({ conversationId: 'conv0' }),
+      });
+      expect(http.sendPrivateReply).not.toHaveBeenCalled();
     });
   });
 });

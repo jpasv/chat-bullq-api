@@ -1,11 +1,19 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Channel, SocialComment, SocialCommentStatus } from '@prisma/client';
+import {
+  Channel,
+  MessageContentType,
+  MessageDirection,
+  MessageStatus,
+  SocialComment,
+  SocialCommentStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { InstagramHttpClient } from '../channel-hub/adapters/instagram/instagram.http-client';
@@ -80,6 +88,55 @@ export class SocialCommentsService {
     await this.graph(() => this.instagram.deleteComment(channel, comment.externalId));
     await this.repo.update(id, { status: SocialCommentStatus.DELETED });
     return this.emitThread(channel.id, comment.parentExternalId ?? comment.externalId);
+  }
+
+  async privateReply(id: string, orgId: string, userId: string, access: ChannelAccess, text: string) {
+    const { comment, channel } = await this.loadActionable(id, orgId, access);
+    if (comment.privateReplyConversationId) {
+      throw new ConflictException({
+        message: 'DM já aberta para este comentário',
+        conversationId: comment.privateReplyConversationId,
+      });
+    }
+
+    const sent = await this.graph(() =>
+      this.instagram.sendPrivateReply(channel, comment.externalId, text),
+    );
+
+    const { contactId } = await this.contactResolver.resolveByExternalId(
+      orgId,
+      channel.id,
+      comment.authorExternalId,
+      comment.authorUsername ?? undefined,
+    );
+    const { conversationId } = await this.conversationResolver.resolveForOperator(
+      orgId,
+      channel.id,
+      contactId,
+      userId,
+    );
+
+    const message = await this.messagesRepo.create({
+      conversationId,
+      direction: MessageDirection.OUTBOUND,
+      type: MessageContentType.TEXT,
+      content: { text },
+      status: MessageStatus.SENT,
+      externalId: sent?.message_id ?? null,
+      senderId: userId,
+      sentAt: new Date(),
+      metadata: { privateReplyOf: comment.externalId },
+    });
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: new Date() },
+    });
+    this.realtime.emitToChannel(channel.id, 'message:new', { message, conversationId, contactId });
+    this.realtime.emitToConversation(conversationId, 'message:new', { message });
+
+    await this.repo.update(id, { privateReplyConversationId: conversationId });
+    await this.emitThread(channel.id, comment.parentExternalId ?? comment.externalId);
+    return { conversationId };
   }
 
   // ─── helpers ───────────────────────────────────────────────────────
