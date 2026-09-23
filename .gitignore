@@ -39,3 +39,6 @@ temp/
 
 # Local file storage
 uploads/
+
+# SDD scratch workspace
+.superpowers/
