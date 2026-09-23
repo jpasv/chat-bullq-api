@@ -35,8 +35,7 @@ export class SocialCommentsIngestService {
     const igBusinessId = String(cfg.igBusinessId ?? cfg.igUserId ?? '');
     const isFromPage = !!igBusinessId && comment.authorExternalId === igBusinessId;
 
-    const existed = await this.repo.findByExternal(channelId, comment.externalId);
-    const saved = await this.repo.upsertFromWebhook({
+    const { row: saved, created } = await this.repo.createOrUpdateFromWebhook({
       organizationId,
       channelId,
       externalId: comment.externalId,
@@ -48,7 +47,6 @@ export class SocialCommentsIngestService {
       isFromPage,
       commentedAt: comment.commentedAt,
     });
-    const created = !existed;
 
     if (created && isFromPage && comment.parentExternalId) {
       await this.repo.markParentReplied(channelId, comment.parentExternalId, null);

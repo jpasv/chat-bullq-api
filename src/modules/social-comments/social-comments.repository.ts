@@ -29,7 +29,15 @@ export class SocialCommentsRepository {
     });
   }
 
-  upsertFromWebhook(data: {
+  /**
+   * `created` vem do próprio write, não de um pre-read: com concorrência 10
+   * no processor e redelivery at-least-once do Meta, dois workers podem ver
+   * "not found" ao mesmo tempo antes de qualquer um escrever. Tentar o
+   * `create` e cair pro `update` só em conflito de unique (P2002) garante
+   * que só o worker que efetivamente inseriu a linha reporta `created: true`
+   * — o outro perde a corrida no banco e recebe `created: false`.
+   */
+  async createOrUpdateFromWebhook(data: {
     organizationId: string;
     channelId: string;
     externalId: string;
@@ -40,31 +48,41 @@ export class SocialCommentsRepository {
     text: string;
     isFromPage: boolean;
     commentedAt: Date;
-  }) {
-    return this.prisma.socialComment.upsert({
-      where: {
-        uq_social_comment_external: {
+  }): Promise<{ row: SocialComment; created: boolean }> {
+    try {
+      const row = await this.prisma.socialComment.create({
+        data: {
+          organizationId: data.organizationId,
           channelId: data.channelId,
           externalId: data.externalId,
+          parentExternalId: data.parentExternalId ?? null,
+          mediaId: data.mediaId,
+          authorExternalId: data.authorExternalId,
+          authorUsername: data.authorUsername ?? null,
+          text: data.text,
+          isFromPage: data.isFromPage,
+          commentedAt: data.commentedAt,
         },
-      },
-      create: {
-        organizationId: data.organizationId,
-        channelId: data.channelId,
-        externalId: data.externalId,
-        parentExternalId: data.parentExternalId ?? null,
-        mediaId: data.mediaId,
-        authorExternalId: data.authorExternalId,
-        authorUsername: data.authorUsername ?? null,
-        text: data.text,
-        isFromPage: data.isFromPage,
-        commentedAt: data.commentedAt,
-      },
-      update: {
-        text: data.text,
-        authorUsername: data.authorUsername ?? undefined,
-      },
-    });
+      });
+      return { row, created: true };
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const row = await this.prisma.socialComment.update({
+          where: {
+            uq_social_comment_external: {
+              channelId: data.channelId,
+              externalId: data.externalId,
+            },
+          },
+          data: {
+            text: data.text,
+            authorUsername: data.authorUsername ?? undefined,
+          },
+        });
+        return { row, created: false };
+      }
+      throw err;
+    }
   }
 
   update(id: string, data: Prisma.SocialCommentUncheckedUpdateInput) {
