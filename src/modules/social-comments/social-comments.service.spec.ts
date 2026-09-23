@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SocialCommentsService } from './social-comments.service';
 
 const channel = { id: 'ch1', organizationId: 'org1', config: { igBusinessId: '1784' } };
@@ -6,7 +6,7 @@ const root = {
   id: 's1', organizationId: 'org1', channelId: 'ch1', externalId: 'c1', parentExternalId: null,
   mediaId: 'm1', authorExternalId: '5550001', authorUsername: 'maria.s', text: 'Quanto custa?',
   status: 'VISIBLE', isFromPage: false, repliedAt: null, privateReplyConversationId: null,
-  commentedAt: new Date('2026-09-22T12:00:00Z'),
+  commentedAt: new Date(Date.now() - 1000),
 };
 
 function build() {
@@ -67,6 +67,27 @@ describe('SocialCommentsService', () => {
       await service.list('org1', 'ALL', { unreplied: 'true' });
       expect(repo.listRoots).toHaveBeenCalledWith(expect.objectContaining({ unreplied: true, channelIds: undefined, limit: 30 }));
     });
+
+    it('channelId fora do acesso: valida com assertChannelAccess e rejeita 403', async () => {
+      const { service, repo, channelAccess } = build();
+      channelAccess.assertChannelAccess.mockImplementation(() => {
+        throw new ForbiddenException();
+      });
+      const access = new Set(['ch1']);
+      await expect(service.list('org1', access, { channelId: 'ch2' })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(channelAccess.assertChannelAccess).toHaveBeenCalledWith(access, 'ch2');
+      expect(repo.listRoots).not.toHaveBeenCalled();
+    });
+
+    it('channelId dentro do acesso: passa direto pro repo', async () => {
+      const { service, repo, channelAccess } = build();
+      const access = new Set(['ch1']);
+      await service.list('org1', access, { channelId: 'ch1' });
+      expect(channelAccess.assertChannelAccess).toHaveBeenCalledWith(access, 'ch1');
+      expect(repo.listRoots).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'ch1' }));
+    });
   });
 
   describe('reply', () => {
@@ -101,6 +122,13 @@ describe('SocialCommentsService', () => {
       const { service, repo } = build();
       repo.findById.mockResolvedValue({ ...root, status: 'DELETED' });
       await expect(service.reply('s1', 'org1', 'u1', 'ALL', 'x')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('comentário é uma resposta (tem parentExternalId): 400 e não chama Graph', async () => {
+      const { service, repo, http } = build();
+      repo.findById.mockResolvedValue({ ...root, parentExternalId: 'c0' });
+      await expect(service.reply('s1', 'org1', 'u1', 'ALL', 'x')).rejects.toBeInstanceOf(BadRequestException);
+      expect(http.replyToComment).not.toHaveBeenCalled();
     });
   });
 
@@ -161,6 +189,27 @@ describe('SocialCommentsService', () => {
         status: 409,
         response: expect.objectContaining({ conversationId: 'conv0' }),
       });
+      expect(http.sendPrivateReply).not.toHaveBeenCalled();
+    });
+
+    it('comentário é da própria página: 400, sem resolver/Graph', async () => {
+      const { service, repo, http, contactResolver, conversationResolver } = build();
+      repo.findById.mockResolvedValue({ ...root, isFromPage: true });
+      await expect(service.privateReply('s1', 'org1', 'u1', 'ALL', 'x')).rejects.toBeInstanceOf(BadRequestException);
+      expect(contactResolver.resolveByExternalId).not.toHaveBeenCalled();
+      expect(conversationResolver.resolveForOperator).not.toHaveBeenCalled();
+      expect(http.sendPrivateReply).not.toHaveBeenCalled();
+    });
+
+    it('comentário com mais de 7 dias: 400, sem resolver/Graph', async () => {
+      const { service, repo, http, contactResolver, conversationResolver } = build();
+      repo.findById.mockResolvedValue({
+        ...root,
+        commentedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      });
+      await expect(service.privateReply('s1', 'org1', 'u1', 'ALL', 'x')).rejects.toBeInstanceOf(BadRequestException);
+      expect(contactResolver.resolveByExternalId).not.toHaveBeenCalled();
+      expect(conversationResolver.resolveForOperator).not.toHaveBeenCalled();
       expect(http.sendPrivateReply).not.toHaveBeenCalled();
     });
   });

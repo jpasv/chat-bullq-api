@@ -26,6 +26,9 @@ import { SAKANA_CONVERSATION_MODEL } from '../ai-agents/llm/llm.constants';
 import { SocialCommentsRepository, SocialCommentView } from './social-comments.repository';
 import { ListCommentsQueryDto } from './dto/list-comments.query.dto';
 
+/** Instagram só permite abrir DM a partir de um comentário até 7 dias após ele. */
+const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class SocialCommentsService {
   private readonly logger = new Logger(SocialCommentsService.name);
@@ -43,6 +46,9 @@ export class SocialCommentsService {
   ) {}
 
   async list(orgId: string, access: ChannelAccess, query: ListCommentsQueryDto) {
+    if (query.channelId) {
+      this.channelAccess.assertChannelAccess(access, query.channelId);
+    }
     return this.repo.listRoots({
       organizationId: orgId,
       channelIds: access === 'ALL' ? undefined : [...access],
@@ -56,6 +62,9 @@ export class SocialCommentsService {
 
   async reply(id: string, orgId: string, userId: string, access: ChannelAccess, text: string) {
     const { comment, channel } = await this.loadActionable(id, orgId, access);
+    if (comment.parentExternalId) {
+      throw new BadRequestException('Responda o comentário raiz, não uma resposta');
+    }
     const res = await this.graph(() => this.instagram.replyToComment(channel, comment.externalId, text));
 
     const cfg = (channel.config ?? {}) as Record<string, any>;
@@ -98,6 +107,12 @@ export class SocialCommentsService {
         message: 'DM já aberta para este comentário',
         conversationId: comment.privateReplyConversationId,
       });
+    }
+    if (comment.isFromPage) {
+      throw new BadRequestException('Não é possível abrir DM com a própria conta');
+    }
+    if (Date.now() - comment.commentedAt.getTime() > PRIVATE_REPLY_WINDOW_MS) {
+      throw new BadRequestException('O Instagram só permite DM até 7 dias após o comentário');
     }
 
     const { contactId } = await this.contactResolver.resolveByExternalId(

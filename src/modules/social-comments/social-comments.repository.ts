@@ -4,6 +4,17 @@ import { PrismaService } from '../../database/prisma.service';
 
 export type SocialCommentView = SocialComment & { replies: SocialComment[] };
 
+/** Cursor opaco pro cliente: `${commentedAt.getTime()}_${id}`. */
+function parseCursor(cursor?: string): { commentedAt: Date; id: string } | undefined {
+  if (!cursor) return undefined;
+  const idx = cursor.indexOf('_');
+  if (idx <= 0) return undefined;
+  const ms = Number(cursor.slice(0, idx));
+  const id = cursor.slice(idx + 1);
+  if (!Number.isFinite(ms) || !id) return undefined;
+  return { commentedAt: new Date(ms), id };
+}
+
 export interface ListRootsParams {
   organizationId: string;
   /** Canais permitidos. `undefined` = todos da org. */
@@ -136,18 +147,32 @@ export class SocialCommentsRepository {
       parentExternalId: null,
     };
     if (params.channelIds) where.channelId = { in: params.channelIds };
-    if (params.channelId) where.channelId = params.channelId;
+    if (params.channelId) {
+      if (params.channelIds && !params.channelIds.includes(params.channelId)) {
+        where.channelId = { in: [] };
+      } else {
+        where.channelId = params.channelId;
+      }
+    }
     if (params.status) where.status = params.status;
     if (params.unreplied) {
       where.repliedAt = null;
       where.status = SocialCommentStatus.VISIBLE;
+      where.isFromPage = false;
+    }
+
+    const c = parseCursor(params.cursor);
+    if (c) {
+      where.OR = [
+        { commentedAt: { lt: c.commentedAt } },
+        { commentedAt: c.commentedAt, id: { lt: c.id } },
+      ];
     }
 
     const roots = await this.prisma.socialComment.findMany({
       where,
       orderBy: [{ commentedAt: 'desc' }, { id: 'desc' }],
       take: params.limit + 1,
-      ...(params.cursor ? { cursor: { id: params.cursor }, skip: 1 } : {}),
     });
 
     const hasMore = roots.length > params.limit;
@@ -172,7 +197,9 @@ export class SocialCommentsRepository {
         ...root,
         replies: byParent.get(`${root.channelId}:${root.externalId}`) ?? [],
       })),
-      nextCursor: hasMore ? page[page.length - 1].id : null,
+      nextCursor: hasMore
+        ? `${page[page.length - 1].commentedAt.getTime()}_${page[page.length - 1].id}`
+        : null,
     };
   }
 }
