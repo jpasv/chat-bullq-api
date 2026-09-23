@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { NotificationType } from '@prisma/client';
@@ -85,8 +85,10 @@ export class NotificationsService {
     };
   }
 
-  async markRead(id: string) {
-    return this.repository.markRead(id);
+  async markRead(id: string, userId: string, orgId: string) {
+    const result = await this.repository.markRead(id, userId, orgId);
+    if (result.count === 0) throw new NotFoundException('Notification not found');
+    return result;
   }
 
   async markAllRead(userId: string, orgId: string) {
