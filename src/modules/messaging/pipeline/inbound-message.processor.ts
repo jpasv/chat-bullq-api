@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger, forwardRef } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { PrismaService } from '../../../database/prisma.service';
 import { IdempotencyService } from './idempotency.service';
@@ -99,6 +99,7 @@ export class InboundMessageProcessor extends WorkerHost {
     private readonly outbox: OutboxService,
     private readonly watchdog: WatchdogService,
     private readonly salesRecovery: SalesRecoveryService,
+    @Inject(forwardRef(() => SocialCommentsIngestService))
     private readonly socialCommentsIngest: SocialCommentsIngestService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
   ) {

@@ -46,7 +46,7 @@ import { ContactsRepository } from './contacts/contacts.repository';
     SegmentsModule,
     ProjectsModule,
     SalesRecoveryModule,
-    SocialCommentsModule,
+    forwardRef(() => SocialCommentsModule),
   ],
   controllers: [ConversationsController, MessagesController, ContactsController],
   providers: [
@@ -67,6 +67,16 @@ import { ContactsRepository } from './contacts/contacts.repository';
     ContactsService,
     ContactsRepository,
   ],
-  exports: [ConversationsService, MessagesService, ConversationFsmService, ContactsService, HistoryImportService, UploadsService],
+  exports: [
+    ConversationsService,
+    MessagesService,
+    ConversationFsmService,
+    ContactsService,
+    HistoryImportService,
+    UploadsService,
+    ContactResolverService,
+    ConversationResolverService,
+    MessagesRepository,
+  ],
 })
 export class MessagingModule {}
