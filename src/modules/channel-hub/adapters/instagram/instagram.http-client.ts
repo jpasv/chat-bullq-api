@@ -216,6 +216,83 @@ export class InstagramHttpClient {
     }
   }
 
+  // ─── Comentários em posts ─────────────────────────────────────────
+
+  async getMedia(
+    channel: Channel,
+    mediaId: string,
+  ): Promise<{
+    id: string;
+    permalink?: string;
+    caption?: string;
+    media_type?: string;
+    thumbnail_url?: string;
+    media_url?: string;
+  }> {
+    const client = this.createClient(channel);
+    try {
+      const { data } = await client.get(`/${mediaId}`, {
+        params: {
+          fields: 'id,permalink,caption,media_type,thumbnail_url,media_url',
+        },
+      });
+      return data;
+    } catch (err: any) {
+      throw this.wrapGraphError(err, 'getMedia');
+    }
+  }
+
+  async replyToComment(
+    channel: Channel,
+    commentId: string,
+    message: string,
+  ): Promise<{ id: string }> {
+    const client = this.createClient(channel);
+    try {
+      const { data } = await client.post(`/${commentId}/replies`, { message });
+      return data;
+    } catch (err: any) {
+      throw this.wrapGraphError(err, 'replyToComment');
+    }
+  }
+
+  async deleteComment(channel: Channel, commentId: string): Promise<void> {
+    const client = this.createClient(channel);
+    try {
+      await client.delete(`/${commentId}`);
+    } catch (err: any) {
+      throw this.wrapGraphError(err, 'deleteComment');
+    }
+  }
+
+  async setCommentHidden(
+    channel: Channel,
+    commentId: string,
+    hide: boolean,
+  ): Promise<void> {
+    const client = this.createClient(channel);
+    try {
+      await client.post(`/${commentId}`, { hide });
+    } catch (err: any) {
+      throw this.wrapGraphError(err, 'setCommentHidden');
+    }
+  }
+
+  /**
+   * Private Reply: DM iniciada a partir de um comentário. Meta permite uma
+   * por comentário, até 7 dias depois dele, fora da regra das 24h.
+   */
+  async sendPrivateReply(
+    channel: Channel,
+    commentId: string,
+    text: string,
+  ): Promise<{ recipient_id?: string; message_id?: string }> {
+    return this.sendMessage(channel, {
+      recipient: { comment_id: commentId },
+      message: { text },
+    });
+  }
+
   private wrapGraphError(err: any, context: string): Error {
     const metaError = err?.response?.data?.error;
     if (metaError) {
