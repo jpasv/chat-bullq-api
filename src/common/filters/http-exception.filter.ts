@@ -39,7 +39,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       );
     }
 
+    const extra =
+      exceptionResponse && typeof exceptionResponse === 'object'
+        ? (exceptionResponse as Record<string, unknown>)
+        : {};
+
     response.status(status).json({
+      ...extra,
       statusCode: status,
       message,
       error:

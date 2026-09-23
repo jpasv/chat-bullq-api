@@ -99,10 +99,6 @@ export class SocialCommentsService {
       });
     }
 
-    const sent = await this.graph(() =>
-      this.instagram.sendPrivateReply(channel, comment.externalId, text),
-    );
-
     const { contactId } = await this.contactResolver.resolveByExternalId(
       orgId,
       channel.id,
@@ -115,6 +111,14 @@ export class SocialCommentsService {
       contactId,
       userId,
     );
+
+    const sent = await this.graph(() =>
+      this.instagram.sendPrivateReply(channel, comment.externalId, text),
+    );
+
+    // Guarda durável logo após o envio real — se algo abaixo falhar, o
+    // retry cai no 409 em vez de mandar uma segunda DM de verdade.
+    await this.repo.update(id, { privateReplyConversationId: conversationId });
 
     const message = await this.messagesRepo.create({
       conversationId,
@@ -134,7 +138,6 @@ export class SocialCommentsService {
     this.realtime.emitToChannel(channel.id, 'message:new', { message, conversationId, contactId });
     this.realtime.emitToConversation(conversationId, 'message:new', { message });
 
-    await this.repo.update(id, { privateReplyConversationId: conversationId });
     await this.emitThread(channel.id, comment.parentExternalId ?? comment.externalId);
     return { conversationId };
   }

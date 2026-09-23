@@ -138,7 +138,19 @@ describe('SocialCommentsService', () => {
       }));
       expect(repo.update).toHaveBeenCalledWith('s1', { privateReplyConversationId: 'conv1' });
       expect(realtime.emitToChannel).toHaveBeenCalledWith('ch1', 'message:new', expect.objectContaining({ conversationId: 'conv1' }));
+      expect(realtime.emitToConversation).toHaveBeenCalledWith(
+        'conv1', 'message:new', expect.objectContaining({ message: expect.anything() }),
+      );
       expect(out).toEqual({ conversationId: 'conv1' });
+
+      // Idempotência: contato/conversa resolvidos ANTES do envio real da DM
+      // (get-or-create, seguro repetir), e o guard durável (repo.update)
+      // gravado logo após o envio, antes de qualquer outro passo que possa
+      // falhar — assim um retry cai no 409 em vez de mandar 2ª DM.
+      expect(conversationResolver.resolveForOperator.mock.invocationCallOrder[0])
+        .toBeLessThan(http.sendPrivateReply.mock.invocationCallOrder[0]);
+      expect(repo.update.mock.invocationCallOrder[0])
+        .toBeLessThan(messagesRepo.create.mock.invocationCallOrder[0]);
     });
 
     it('segunda tentativa: 409 com conversationId', async () => {
