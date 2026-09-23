@@ -34,6 +34,13 @@ interface InboundJobData {
   message: NormalizedInboundMessage;
 }
 
+interface AiDispatchJobData {
+  conversationId: string;
+  messageId: string;
+  organizationId: string;
+  type: PrismaContentType;
+}
+
 interface StatusJobData {
   channelId: string;
   organizationId?: string;
@@ -57,6 +64,10 @@ interface StatusJobData {
  * collapses the burst, the runner guarantees a single outbound bubble.
  */
 const AGENT_DEBOUNCE_MS = 10_000;
+// Inbound uses 5 attempts with exponential 2s backoff (30s total delay).
+// Keep dedup keys for 24h, including after completion/removal of child jobs,
+// to cover retries plus queue/processing delays after the message was saved.
+const SIDE_EFFECT_DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Message types that should NEVER trigger an agent run. REACTION (the
@@ -102,11 +113,15 @@ export class InboundMessageProcessor extends WorkerHost {
     @Inject(forwardRef(() => SocialCommentsIngestService))
     private readonly socialCommentsIngest: SocialCommentsIngestService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
+    @InjectQueue('inbound-messages') private readonly inboundQueue: Queue,
   ) {
     super();
   }
 
-  async process(job: Job<InboundJobData | StatusJobData | CommentJobData>): Promise<any> {
+  async process(job: Job<InboundJobData | StatusJobData | CommentJobData | AiDispatchJobData>): Promise<any> {
+    if (job.name === 'dispatch-ai') {
+      return this.dispatchAi(job.data as AiDispatchJobData);
+    }
     if (job.name === 'process-comment') {
       return this.socialCommentsIngest.ingest(job.data as CommentJobData);
     }
@@ -117,7 +132,7 @@ export class InboundMessageProcessor extends WorkerHost {
     const { channelId, organizationId, message, webhookEventId } =
       job.data as InboundJobData;
 
-    let claimed = false;
+    let claimed: string | null = null;
     try {
       // Atomic duplicate check: only the first worker proceeds.
       claimed = await this.idempotency.claimProcessing(
@@ -294,6 +309,7 @@ export class InboundMessageProcessor extends WorkerHost {
               messageText: (message.content as any)?.text || '',
             },
             {
+              deduplication: { id: `chatbot-${savedMessage.id}`, ttl: SIDE_EFFECT_DEDUP_TTL_MS },
               attempts: 3,
               backoff: { type: 'exponential', delay: 2000 },
               removeOnComplete: true,
@@ -302,6 +318,23 @@ export class InboundMessageProcessor extends WorkerHost {
           );
           this.logger.log(`Routed to chatbot: conv=${conversationId}`);
         }
+      }
+
+      // Queue the dispatch itself so replaying a persisted message cannot
+      // reset the debounce or trigger another AI reply after a later failure.
+      if (!isEcho) {
+        await this.inboundQueue.add('dispatch-ai', {
+          conversationId,
+          messageId: savedMessage.id,
+          organizationId,
+          type: savedMessage.type,
+        }, {
+          deduplication: { id: `ai-${savedMessage.id}`, ttl: SIDE_EFFECT_DEDUP_TTL_MS },
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        });
       }
 
       this.logger.log(
@@ -331,33 +364,6 @@ export class InboundMessageProcessor extends WorkerHost {
         this.watchdog.cancelCheck(conversationId).catch(() => undefined);
       }
 
-      // Fire-and-forget AI dispatch. Failures here MUST NOT take down the
-      // inbound pipeline — they're logged and the conversation continues
-      // working (the human always wins).
-      //
-      // For audio messages we transcribe first so the agent reads the text
-      // instead of seeing "[audio]" and apologizing it can't listen. Cost
-      // is ~$0.006/min — predictable and pays for itself the moment the
-      // bot answers a single audio without bouncing the customer to text.
-      if (!isEcho) {
-        const dispatch = async () => {
-          if (savedMessage.type === PrismaContentType.AUDIO) {
-            try {
-              await this.transcription.transcribe(savedMessage.id, organizationId);
-            } catch (err: any) {
-              this.logger.warn(
-                `Auto-transcribe failed for ${savedMessage.id}: ${err?.message ?? err} — agent will see [audio] only`,
-              );
-            }
-          }
-          await this.tryAiAgent(conversationId, savedMessage.id);
-        };
-        dispatch().catch((err) =>
-          this.logger.error(
-            `AI dispatch failed for conv ${conversationId}: ${err?.message ?? err}`,
-          ),
-        );
-      }
 
       return {
         messageId: savedMessage.id,
@@ -373,7 +379,7 @@ export class InboundMessageProcessor extends WorkerHost {
       // Release only our own claim, even if recording the failure also fails.
       if (claimed) {
         await this.idempotency
-          .releaseClaim(message.externalMessageId, channelId)
+          .releaseClaim(message.externalMessageId, channelId, claimed)
           .catch(() => undefined);
       }
       if (webhookEventId) {
@@ -381,6 +387,17 @@ export class InboundMessageProcessor extends WorkerHost {
       }
       throw err;
     }
+  }
+
+  private async dispatchAi(data: AiDispatchJobData): Promise<void> {
+    if (data.type === PrismaContentType.AUDIO) {
+      try {
+        await this.transcription.transcribe(data.messageId, data.organizationId);
+      } catch (err: any) {
+        this.logger.warn(`Auto-transcribe failed for ${data.messageId}: ${err?.message ?? err} — agent will see [audio] only`);
+      }
+    }
+    await this.tryAiAgent(data.conversationId, data.messageId);
   }
 
   /**

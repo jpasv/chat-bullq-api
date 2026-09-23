@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { randomUUID } from 'crypto';
 
 /**
  * Atomic idempotency + distributed locks, backed by Redis.
@@ -42,32 +43,41 @@ export class IdempotencyService implements OnModuleDestroy {
   }
 
   /**
-   * Atomic claim. Returns true when THIS caller won the race (and therefore
-   * must process the message). Returns false when the message was already
+   * Atomic claim. Returns an ownership token when THIS caller won the race
+   * (and must process the message). Returns null when the message was already
    * claimed — caller MUST skip.
    */
   async claimProcessing(
     externalMessageId: string,
     channelId: string,
-  ): Promise<boolean> {
-    if (!externalMessageId) return true;
+  ): Promise<string | null> {
+    const token = randomUUID();
+    if (!externalMessageId) return token;
     const res = await this.redis.set(
       this.key(channelId, externalMessageId),
-      '1',
+      token,
       'EX',
       IdempotencyService.TTL_SECONDS,
       'NX',
     );
-    return res === 'OK';
+    return res === 'OK' ? token : null;
   }
 
   /** Release a failed processing claim so the next attempt can retry. */
   async releaseClaim(
     externalMessageId: string,
     channelId: string,
+    token: string,
   ): Promise<void> {
     if (!externalMessageId) return;
-    await this.redis.del(this.key(channelId, externalMessageId));
+    // Compare-and-delete atomically: an expired claim may have a new owner.
+    await this.redis.eval(`
+      if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('del', KEYS[1])
+      else
+        return 0
+      end
+    `, 1, this.key(channelId, externalMessageId), token);
   }
 
   /** Post-hoc mark — only used when we SKIP the processing path but
