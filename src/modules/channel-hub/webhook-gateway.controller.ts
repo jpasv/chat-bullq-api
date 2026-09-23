@@ -154,6 +154,27 @@ export class WebhookGatewayController {
           },
         );
       }
+
+      for (const comment of parseResult.comments ?? []) {
+        await this.inboundQueue.add(
+          'process-comment',
+          {
+            channelId: channel.id,
+            organizationId: channel.organizationId,
+            webhookEventId: eventId ?? undefined,
+            comment,
+          },
+          {
+            attempts: 5,
+            backoff: { type: 'exponential', delay: 2000 },
+            removeOnComplete: true,
+            removeOnFail: false,
+          },
+        );
+        this.logger.log(
+          `Enqueued comment: ${comment.externalId} → channel ${channel.id} (${channelType})`,
+        );
+      }
     }
 
     return res.status(200).json({ status: 'ok' });

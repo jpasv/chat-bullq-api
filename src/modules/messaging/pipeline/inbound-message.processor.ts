@@ -16,6 +16,7 @@ import { TranscriptionService } from '../messages/transcription.service';
 import { OutboxService } from '../../automations/outbox/outbox.service';
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
 import { SalesRecoveryService } from '../../sales-recovery/sales-recovery.service';
+import { SocialCommentsIngestService, CommentJobData } from '../../social-comments/social-comments-ingest.service';
 import {
   AutomationTrigger,
   ChannelType,
@@ -98,12 +99,16 @@ export class InboundMessageProcessor extends WorkerHost {
     private readonly outbox: OutboxService,
     private readonly watchdog: WatchdogService,
     private readonly salesRecovery: SalesRecoveryService,
+    private readonly socialCommentsIngest: SocialCommentsIngestService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
   ) {
     super();
   }
 
-  async process(job: Job<InboundJobData | StatusJobData>): Promise<any> {
+  async process(job: Job<InboundJobData | StatusJobData | CommentJobData>): Promise<any> {
+    if (job.name === 'process-comment') {
+      return this.socialCommentsIngest.ingest(job.data as CommentJobData);
+    }
     if (job.name === 'process-status') {
       return this.processStatus(job.data as StatusJobData);
     }
