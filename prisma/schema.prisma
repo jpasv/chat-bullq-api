@@ -35,6 +35,12 @@ enum ChannelVisibility {
   PRIVATE
 }
 
+enum SocialCommentStatus {
+  VISIBLE
+  HIDDEN
+  DELETED
+}
+
 enum ConversationStatus {
   PENDING
   BOT
@@ -200,6 +206,7 @@ model Organization {
   products      Product[]
   segments      Segment[]
   projects      Project[]
+  socialComments SocialComment[]
 
   @@map("organizations")
 }
@@ -281,6 +288,7 @@ model Channel {
   aiAgentChannels    AiAgentChannel[]
   segmentMemberships SegmentChannel[]
   primaryOfSegments  Segment[]            @relation("SegmentPrimaryChannel")
+  socialComments     SocialComment[]
 
   @@index([organizationId, type], name: "idx_channel_org_type")
   @@map("channels")
@@ -626,6 +634,43 @@ model InternalNote {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@map("internal_notes")
+}
+
+// ─── Social comments (comentários públicos em posts do Instagram) ────
+//
+// Chegam por webhook (`entry[].changes[field=comments]`). `isFromPage` marca
+// replies feitas pela própria conta (via sistema ou pelo app do IG).
+// `repliedAt` no comentário raiz = a página já respondeu publicamente.
+model SocialComment {
+  id                         String              @id @default(cuid())
+  organizationId             String              @map("organization_id")
+  channelId                  String              @map("channel_id")
+  externalId                 String              @map("external_id")
+  parentExternalId           String?             @map("parent_external_id")
+  mediaId                    String              @map("media_id")
+  mediaPermalink             String?             @map("media_permalink")
+  mediaCaption               String?             @map("media_caption") @db.Text
+  mediaThumbnailUrl          String?             @map("media_thumbnail_url")
+  authorExternalId           String              @map("author_external_id")
+  authorUsername             String?             @map("author_username")
+  text                       String              @db.Text
+  status                     SocialCommentStatus @default(VISIBLE)
+  isFromPage                 Boolean             @default(false) @map("is_from_page")
+  repliedAt                  DateTime?           @map("replied_at")
+  repliedById                String?             @map("replied_by_id")
+  privateReplyConversationId String?             @map("private_reply_conversation_id")
+  commentedAt                DateTime            @map("commented_at")
+  createdAt                  DateTime            @default(now()) @map("created_at")
+  updatedAt                  DateTime            @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, externalId], name: "uq_social_comment_external")
+  @@index([organizationId, commentedAt], name: "idx_social_comment_org_time")
+  @@index([channelId, mediaId], name: "idx_social_comment_media")
+  @@index([channelId, parentExternalId], name: "idx_social_comment_thread")
+  @@map("social_comments")
 }
 
 // ─── Messages ────────────────────────────────────
