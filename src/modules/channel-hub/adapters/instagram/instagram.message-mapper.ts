@@ -7,6 +7,7 @@ import {
   StatusUpdate,
   TemplateButton,
   TemplateElement,
+  NormalizedComment,
 } from '../../ports/types';
 
 @Injectable()
@@ -100,6 +101,35 @@ export class InstagramMessageMapper {
       externalMessageId: `ig-read-watermark:${read.watermark}`,
       status: 'read',
       timestamp: new Date(Number(read.watermark) || messaging.timestamp),
+    };
+  }
+
+  /**
+   * `value` de `entry[].changes[]` com `field === 'comments'`:
+   * `{ id, text, from: { id, username }, media: { id, media_product_type }, parent_id? }`.
+   * `entryTimeSeconds` é `entry.time` (unix em segundos).
+   */
+  normalizeComment(
+    value: Record<string, any>,
+    entryTimeSeconds?: number,
+  ): NormalizedComment | null {
+    const externalId = value?.id ? String(value.id) : undefined;
+    const authorExternalId = value?.from?.id ? String(value.from.id) : undefined;
+    const mediaId = value?.media?.id ? String(value.media.id) : undefined;
+    if (!externalId || !authorExternalId || !mediaId) return null;
+
+    return {
+      externalId,
+      parentExternalId: value.parent_id ? String(value.parent_id) : undefined,
+      mediaId,
+      mediaProductType: value.media?.media_product_type,
+      authorExternalId,
+      authorUsername: value.from?.username,
+      text: typeof value.text === 'string' ? value.text : '',
+      commentedAt: entryTimeSeconds
+        ? new Date(entryTimeSeconds * 1000)
+        : new Date(),
+      rawPayload: value,
     };
   }
 

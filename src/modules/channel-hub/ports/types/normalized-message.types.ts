@@ -153,6 +153,22 @@ export interface WebhookParseResult {
   messages: NormalizedInboundMessage[];
   statuses: StatusUpdate[];
   errors: WebhookError[];
+  /** Comentários públicos em posts (Instagram `changes[field=comments]`). */
+  comments?: NormalizedComment[];
+}
+
+/** Comentário público num post/reel, normalizado a partir do webhook. */
+export interface NormalizedComment {
+  externalId: string;
+  /** Presente quando é reply de outro comentário. */
+  parentExternalId?: string;
+  mediaId: string;
+  mediaProductType?: string;
+  authorExternalId: string;
+  authorUsername?: string;
+  text: string;
+  commentedAt: Date;
+  rawPayload: unknown;
 }
 
 export interface WebhookError {
