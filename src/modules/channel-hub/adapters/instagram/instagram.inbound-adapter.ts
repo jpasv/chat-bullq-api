@@ -70,6 +70,7 @@ export class InstagramInboundAdapter implements InboundChannelPort {
       messages: [],
       statuses: [],
       errors: [],
+      comments: [],
     };
 
     try {
@@ -110,6 +111,18 @@ export class InstagramInboundAdapter implements InboundChannelPort {
             if (status) {
               result.statuses.push(status);
             }
+          }
+        }
+
+        const changes: any[] = entry?.changes || [];
+        for (const change of changes) {
+          if (change?.field !== 'comments') continue;
+          const normalized = this.mapper.normalizeComment(
+            change.value ?? {},
+            typeof entry?.time === 'number' ? entry.time : undefined,
+          );
+          if (normalized) {
+            result.comments!.push(normalized);
           }
         }
       }
