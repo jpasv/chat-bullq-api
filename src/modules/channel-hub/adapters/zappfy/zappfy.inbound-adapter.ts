@@ -88,27 +88,18 @@ export class ZappfyInboundAdapter implements InboundChannelPort {
     webhookSecret?: string,
     channel?: Channel,
   ): boolean {
-    // The channel has already been resolved via `matchesChannel`, which
-    // compared the provider token supplied in the payload against the
-    // channel's stored token. That establishes authenticity.
-    // If the operator also set `webhookSecret`, enforce it as extra defense;
-    // otherwise accept (the token match already proves the sender knows
-    // our credentials).
-    if (!webhookSecret) return true;
-    const headerToken = headers['x-webhook-token'] || headers['token'];
-    const bodyToken = this.extractBodyToken(_rawBody);
-    const candidate = headerToken || bodyToken;
-    if (!candidate) {
-      // webhookSecret set but no token in headers/body — reject.
+    // Routing by instanceId does not authenticate the sender.
+    const channelToken = (channel?.config as Record<string, unknown> | undefined)?.token;
+    const secrets = [webhookSecret, channel?.webhookSecret, channelToken]
+      .filter((secret): secret is string => typeof secret === 'string' && secret.length > 0);
+    if (secrets.length === 0) {
+      this.logger.warn('Zappfy webhook rejected: token/webhookSecret is not configured');
       return false;
     }
-    if (this.timingSafeEqualStr(webhookSecret, candidate)) return true;
-    // Secret might be the config.token — we already verified that in matchesChannel.
-    const channelToken = (channel?.config as any)?.token;
-    if (channelToken && this.timingSafeEqualStr(String(channelToken), candidate)) {
-      return true;
-    }
-    return false;
+    const headerToken = headers['x-webhook-token'] || headers['token'];
+    const candidate = headerToken || this.extractBodyToken(_rawBody);
+    if (typeof candidate !== 'string' || !candidate) return false;
+    return secrets.some((secret) => this.timingSafeEqualStr(secret, candidate));
   }
 
   private extractBodyToken(rawBody: Buffer): string | undefined {

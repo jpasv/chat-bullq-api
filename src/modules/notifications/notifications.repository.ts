@@ -31,9 +31,9 @@ export class NotificationsRepository {
     });
   }
 
-  async markRead(id: string) {
-    return this.prisma.notification.update({
-      where: { id },
+  async markRead(id: string, userId: string, orgId: string) {
+    return this.prisma.notification.updateMany({
+      where: { id, recipientId: userId, organizationId: orgId },
       data: { isRead: true, readAt: new Date() },
     });
   }

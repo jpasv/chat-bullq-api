@@ -47,7 +47,10 @@ export class InstagramInboundAdapter implements InboundChannelPort {
     channel?: Channel,
   ): boolean {
     const appSecret = (channel?.config as Record<string, any> | undefined)?.appSecret;
-    if (!appSecret) return true;
+    if (!appSecret) {
+      this.logger.warn('Instagram webhook rejected: appSecret is not configured');
+      return false;
+    }
 
     const signature = headers['x-hub-signature-256'];
     if (!signature) return false;
