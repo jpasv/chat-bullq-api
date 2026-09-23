@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Channel, ChannelType } from '@prisma/client';
 import * as crypto from 'crypto';
 import {
@@ -16,7 +17,10 @@ export class ZappfyInboundAdapter implements InboundChannelPort {
   readonly channelType = ChannelType.WHATSAPP_ZAPPFY;
   private readonly logger = new Logger(ZappfyInboundAdapter.name);
 
-  constructor(private readonly mapper: ZappfyMessageMapper) {}
+  constructor(
+    private readonly mapper: ZappfyMessageMapper,
+    private readonly configService: ConfigService,
+  ) {}
 
   extractLocators(
     payload: unknown,
@@ -93,8 +97,11 @@ export class ZappfyInboundAdapter implements InboundChannelPort {
     const secrets = [webhookSecret, channel?.webhookSecret, channelToken]
       .filter((secret): secret is string => typeof secret === 'string' && secret.length > 0);
     if (secrets.length === 0) {
-      this.logger.warn('Zappfy webhook rejected: token/webhookSecret is not configured');
-      return false;
+      const requireAuth = String(this.configService.get('WEBHOOK_REQUIRE_AUTH', false)) === 'true';
+      this.logger.warn(
+        `Zappfy webhook ${requireAuth ? 'rejected' : 'accepted WITHOUT authentication'}: channelId=${channel?.id ?? 'unknown'}; configure token/webhookSecret (WEBHOOK_REQUIRE_AUTH=${requireAuth})`,
+      );
+      return !requireAuth;
     }
     const headerToken = headers['x-webhook-token'] || headers['token'];
     const candidate = headerToken || this.extractBodyToken(_rawBody);
