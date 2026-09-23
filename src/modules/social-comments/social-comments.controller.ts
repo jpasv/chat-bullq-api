@@ -50,6 +50,16 @@ export class SocialCommentsController {
     return this.service.privateReply(id, orgId, userId, access, dto.text);
   }
 
+  @Post(':id/suggest')
+  @ApiOperation({ summary: 'Sugere resposta com IA (não envia)' })
+  suggest(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.suggest(id, orgId, access);
+  }
+
   @Patch(':id/hide')
   @ApiOperation({ summary: 'Oculta ou desoculta o comentário no Instagram' })
   hide(

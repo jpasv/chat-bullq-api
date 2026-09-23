@@ -22,6 +22,7 @@ import { ContactResolverService } from '../messaging/pipeline/contact-resolver.s
 import { ConversationResolverService } from '../messaging/pipeline/conversation-resolver.service';
 import { MessagesRepository } from '../messaging/messages/messages.repository';
 import { LlmService } from '../ai-agents/llm/llm.service';
+import { SAKANA_CONVERSATION_MODEL } from '../ai-agents/llm/llm.constants';
 import { SocialCommentsRepository, SocialCommentView } from './social-comments.repository';
 import { ListCommentsQueryDto } from './dto/list-comments.query.dto';
 
@@ -140,6 +141,59 @@ export class SocialCommentsService {
 
     await this.emitThread(channel.id, comment.parentExternalId ?? comment.externalId);
     return { conversationId };
+  }
+
+  /**
+   * Sugere um texto de resposta com IA — nunca envia nada, só devolve o
+   * texto pra revisão do operador. Se o modelo achar que o comentário é
+   * spam/ofensivo/sem mérito de resposta, devolve texto vazio com reason.
+   */
+  async suggest(id: string, orgId: string, access: ChannelAccess): Promise<{ text: string; reason?: 'spam' }> {
+    const { comment, channel } = await this.loadActionable(id, orgId, access);
+    const thread = await this.repo.findThread(channel.id, comment.parentExternalId ?? comment.externalId);
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { name: true, aiBusinessNotes: true },
+    });
+
+    const system = [
+      `Você responde comentários públicos no Instagram da conta "${channel.name}" (${org?.name ?? ''}).`,
+      'Regras: responda em português do Brasil, tom cordial e direto, no máximo 2 frases.',
+      'Não invente preços, prazos ou promoções que não estejam no contexto. Não inclua links.',
+      'Se o comentário for spam, ofensivo ou não merecer resposta, responda exatamente: [SPAM]',
+      org?.aiBusinessNotes?.trim() ? `\nSobre a empresa:\n${org.aiBusinessNotes.trim()}` : '',
+    ].filter(Boolean).join('\n');
+
+    const replies = (thread?.replies ?? [])
+      .map((r) => `- ${r.isFromPage ? 'Página' : `@${r.authorUsername ?? r.authorExternalId}`}: ${r.text}`)
+      .join('\n');
+    const user = [
+      `Legenda do post: ${thread?.mediaCaption ?? comment.mediaCaption ?? '(sem legenda)'}`,
+      `Comentário de @${comment.authorUsername ?? comment.authorExternalId}: ${comment.text}`,
+      replies ? `Respostas anteriores na thread:\n${replies}` : '',
+      'Escreva só o texto da resposta.',
+    ].filter(Boolean).join('\n\n');
+
+    const resp = await this.llm.complete({
+      modelId: SAKANA_CONVERSATION_MODEL,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: 0.5,
+      maxTokens: 200,
+    });
+
+    const raw =
+      typeof resp.message.content === 'string'
+        ? resp.message.content
+        : resp.message.content
+            .filter((p) => p.type === 'text')
+            .map((p) => p.text)
+            .join('');
+    const text = raw.trim();
+    if (!text || text.toUpperCase().includes('[SPAM]')) return { text: '', reason: 'spam' };
+    return { text };
   }
 
   // ─── helpers ───────────────────────────────────────────────────────

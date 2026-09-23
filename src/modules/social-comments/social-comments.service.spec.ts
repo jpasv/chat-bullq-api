@@ -12,6 +12,7 @@ const root = {
 function build() {
   const prisma = {
     channel: { findUnique: jest.fn().mockResolvedValue(channel) },
+    organization: { findUnique: jest.fn().mockResolvedValue({ name: 'Loja X', aiBusinessNotes: 'Vendemos cursos.' }) },
   };
   const repo = {
     findById: jest.fn().mockResolvedValue(root),
@@ -161,6 +162,31 @@ describe('SocialCommentsService', () => {
         response: expect.objectContaining({ conversationId: 'conv0' }),
       });
       expect(http.sendPrivateReply).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('suggest', () => {
+    it('monta prompt com legenda + comentário e devolve texto', async () => {
+      const { service, repo, llm } = build();
+      repo.findById.mockResolvedValue({ ...root, mediaCaption: 'Promoção de setembro' });
+      repo.findThread.mockResolvedValue({ ...root, mediaCaption: 'Promoção de setembro', replies: [] });
+      llm.complete.mockResolvedValue({ message: { role: 'assistant', content: 'Oi Maria! Custa R$ 99, te chamo no direct.' } });
+
+      const out = await service.suggest('s1', 'org1', 'ALL');
+
+      const req = llm.complete.mock.calls[0][0];
+      expect(req.modelId).toBe('sakana/fugu-ultra-20260615');
+      expect(req.messages[0].role).toBe('system');
+      expect(req.messages[0].content).toContain('Vendemos cursos.');
+      expect(req.messages[1].content).toContain('Promoção de setembro');
+      expect(req.messages[1].content).toContain('Quanto custa?');
+      expect(out).toEqual({ text: 'Oi Maria! Custa R$ 99, te chamo no direct.' });
+    });
+
+    it('modelo devolve [SPAM]: texto vazio com reason', async () => {
+      const { service, llm } = build();
+      llm.complete.mockResolvedValue({ message: { role: 'assistant', content: '[SPAM]' } });
+      await expect(service.suggest('s1', 'org1', 'ALL')).resolves.toEqual({ text: '', reason: 'spam' });
     });
   });
 });
