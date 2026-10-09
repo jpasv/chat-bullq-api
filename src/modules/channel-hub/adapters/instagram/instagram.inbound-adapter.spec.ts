@@ -1,8 +1,9 @@
+import { ConfigService } from '@nestjs/config';
 import { ChannelType } from '@prisma/client';
 import { InstagramInboundAdapter } from './instagram.inbound-adapter';
 import { InstagramMessageMapper } from './instagram.message-mapper';
 
-const adapter = new InstagramInboundAdapter(new InstagramMessageMapper());
+const adapter = new InstagramInboundAdapter(new InstagramMessageMapper(), new ConfigService());
 
 const channel = {
   id: 'ch1',
@@ -71,5 +72,23 @@ describe('InstagramInboundAdapter.parseWebhook — comments', () => {
   it('payload sem changes retorna comments vazio', () => {
     const out = adapter.parseWebhook({ entry: [{ id: '1784' }] }, channel);
     expect(out.comments).toEqual([]);
+  });
+});
+
+describe('Instagram webhook authentication rollout', () => {
+  it.each([false, true, 'false', 'true', undefined])('handles missing secrets with flag %s', (flag) => {
+    const subject = new InstagramInboundAdapter(new InstagramMessageMapper(), new ConfigService({ WEBHOOK_REQUIRE_AUTH: flag }));
+    const warn = jest.spyOn((subject as any).logger, 'warn').mockImplementation(() => {});
+    expect(subject.validateWebhook({}, Buffer.from('{}'), undefined, channel)).toBe(String(flag) !== 'true');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('channelId=ch1'));
+  });
+  it.each([false, true])('always validates signatures when configured (flag %s)', (flag) => {
+    const subject = new InstagramInboundAdapter(new InstagramMessageMapper(), new ConfigService({ WEBHOOK_REQUIRE_AUTH: flag }));
+    const secured = { ...channel, config: { appSecret: 'secret' } };
+    const body = Buffer.from('{}');
+    const signature = 'sha256=' + require('crypto').createHmac('sha256', 'secret').update(body).digest('hex');
+    expect(subject.validateWebhook({ 'x-hub-signature-256': signature }, body, undefined, secured)).toBe(true);
+    expect(subject.validateWebhook({ 'x-hub-signature-256': signature }, Buffer.from('{"changed":true}'), undefined, secured)).toBe(false);
+    expect(subject.validateWebhook({}, body, undefined, secured)).toBe(false);
   });
 });

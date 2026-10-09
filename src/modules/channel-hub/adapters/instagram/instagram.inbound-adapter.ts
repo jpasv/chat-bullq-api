@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Channel, ChannelType } from '@prisma/client';
 import * as crypto from 'crypto';
 import {
@@ -13,7 +14,10 @@ export class InstagramInboundAdapter implements InboundChannelPort {
   readonly channelType = ChannelType.INSTAGRAM;
   private readonly logger = new Logger(InstagramInboundAdapter.name);
 
-  constructor(private readonly mapper: InstagramMessageMapper) {}
+  constructor(
+    private readonly mapper: InstagramMessageMapper,
+    private readonly configService: ConfigService,
+  ) {}
 
   extractLocators(payload: unknown): ChannelLocator[] {
     const body = (payload ?? {}) as Record<string, any>;
@@ -47,7 +51,13 @@ export class InstagramInboundAdapter implements InboundChannelPort {
     channel?: Channel,
   ): boolean {
     const appSecret = (channel?.config as Record<string, any> | undefined)?.appSecret;
-    if (!appSecret) return true;
+    if (!appSecret) {
+      const requireAuth = String(this.configService.get('WEBHOOK_REQUIRE_AUTH', false)) === 'true';
+      this.logger.warn(
+        `Instagram webhook ${requireAuth ? 'rejected' : 'accepted WITHOUT authentication'}: channelId=${channel?.id ?? 'unknown'}; configure appSecret (WEBHOOK_REQUIRE_AUTH=${requireAuth})`,
+      );
+      return !requireAuth;
+    }
 
     const signature = headers['x-hub-signature-256'];
     if (!signature) return false;

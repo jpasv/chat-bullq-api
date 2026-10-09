@@ -17,7 +17,7 @@ RUN npx prisma generate
 RUN yarn build
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl curl tini
+RUN apk add --no-cache openssl curl tini ffmpeg
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001

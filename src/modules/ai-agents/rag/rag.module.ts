@@ -20,8 +20,8 @@ import { RagIndexerProcessor } from './indexer.processor';
  *  - `RagIndexerProcessor`   BullMQ worker on `rag-indexer` queue
  *
  * NOTE: the `ai_vector_entries` table + pgvector extension are NOT in
- * `prisma.schema` — they need to be created via a manual migration in
- * Phase 2. See the SQL block at the top of `vector-store.service.ts`.
+ * `prisma.schema` — they are defined in
+ * `prisma/migrations/20260508120100_pgvector_rag/migration.sql`.
  *
  * Exports the high-level services so the agent runner / prompt composer
  * can call `RetrievalService.retrieve(...)` from Layer 4 CONTEXT.

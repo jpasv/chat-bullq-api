@@ -171,32 +171,30 @@ export class RealtimeGateway
       }
     }
 
-    if (!this.channelAccess.isBypassRole(client.data.role)) {
-      const conv = await this.prisma.conversation.findUnique({
-        where: { id: data.conversationId },
-        select: { channelId: true, organizationId: true },
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: data.conversationId },
+      select: { channelId: true, organizationId: true, channel: { select: { deletedAt: true, organizationId: true } } },
+    });
+    if (!conv || conv.organizationId !== client.data.organizationId) {
+      this.logger.warn(
+        `join:conversation rejected: conv ${data.conversationId} not in org ${client.data.organizationId}`,
+      );
+      client.emit('join:conversation:error', {
+        conversationId: data.conversationId,
+        reason: 'org-mismatch',
       });
-      if (!conv || conv.organizationId !== client.data.organizationId) {
-        this.logger.warn(
-          `join:conversation rejected: conv ${data.conversationId} not in org ${client.data.organizationId}`,
-        );
-        client.emit('join:conversation:error', {
-          conversationId: data.conversationId,
-          reason: 'org-mismatch',
-        });
-        return;
-      }
-      const channelIds = (client.data.channelIds as string[] | undefined) ?? [];
-      if (!channelIds.includes(conv.channelId)) {
-        this.logger.warn(
-          `join:conversation rejected: user ${client.data.userId} has no grant on channel ${conv.channelId}`,
-        );
-        client.emit('join:conversation:error', {
-          conversationId: data.conversationId,
-          reason: 'no-channel-grant',
-        });
-        return;
-      }
+      return;
+    }
+    // PRIVATE requires an explicit grant for every role. The handshake
+    // materializes ALL; also accept the sentinel, scoped to live org channels.
+    const channelIds = (client.data.channelIds as string[] | 'ALL' | undefined) ?? [];
+    if (conv.channel.deletedAt || conv.channel.organizationId !== client.data.organizationId ||
+        (channelIds !== 'ALL' && !channelIds.includes(conv.channelId))) {
+      client.emit('join:conversation:error', {
+        conversationId: data.conversationId,
+        reason: 'no-channel-grant',
+      });
+      return;
     }
     client.join(`conv:${data.conversationId}`);
     client.data.activeConversationId = data.conversationId;
@@ -295,9 +293,21 @@ export class RealtimeGateway
   async revokeChannelFromUser(userId: string, channelId: string): Promise<void> {
     const sockets = await this.server.in(`user:${userId}`).fetchSockets();
     for (const s of sockets) {
-      s.leave(`channel:${channelId}`);
       const ids = (s.data.channelIds as string[] | undefined) ?? [];
       s.data.channelIds = ids.filter((id) => id !== channelId);
+      await s.leave(`channel:${channelId}`);
+      const conversationIds = [...s.rooms]
+        .filter((room) => room.startsWith('conv:'))
+        .map((room) => room.slice('conv:'.length));
+      if (conversationIds.length > 0) {
+        const conversations = await this.prisma.conversation.findMany({
+          where: { id: { in: conversationIds }, channelId },
+          select: { id: true },
+        });
+        for (const conversation of conversations) {
+          await s.leave(`conv:${conversation.id}`);
+        }
+      }
     }
     this.emitToUser(userId, 'permissions:updated', { channelId, granted: false });
   }

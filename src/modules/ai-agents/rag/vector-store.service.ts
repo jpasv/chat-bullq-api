@@ -35,14 +35,12 @@ import type { SearchResult, SearchScope, VectorEntry } from './types';
  *  CREATE INDEX ai_vector_entries_contact_idx      ON ai_vector_entries(contact_id);
  *
  *  -- Approximate nearest neighbour index for cosine distance.
- *  -- `lists = 100` is fine for tens of thousands of rows; tune up for >1M.
+ *  -- HNSW does not require existing data to train the index.
  *  CREATE INDEX ai_vector_entries_embedding_idx
  *    ON ai_vector_entries
- *    USING ivfflat (embedding vector_cosine_ops)
- *    WITH (lists = 100);
+ *    USING hnsw (embedding vector_cosine_ops);
  *
  *  -- After bulk inserts, run:  ANALYZE ai_vector_entries;
- *  -- ivfflat needs ANALYZE to build its centroids.
  *
  * ─────────────────────────────────────────────────────────────────────
  */

@@ -18,7 +18,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -73,6 +73,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Run unit tests
+        run: npx jest --ci
 
       - name: Run evals
         run: npm run evals
