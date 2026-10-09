@@ -237,8 +237,19 @@ export class SocialCommentsService {
     try {
       return await fn();
     } catch (err: any) {
-      this.logger.warn(`Graph API error: ${err?.message ?? err}`);
-      throw new BadGatewayException(err?.message ?? 'Erro na API do Instagram');
+      const message: string = err?.message ?? 'Erro na API do Instagram';
+      this.logger.warn(`Graph API error: ${message}`);
+      // Meta devolve "[#100] ... (subcode 33)" tanto quando o comentário não
+      // existe quanto quando o token não tem o scope de comentários. Como o
+      // comentário chegou por webhook (existe), o caso comum é o scope.
+      const missingScope =
+        /\[#100\]/.test(message) &&
+        /subcode 33|missing permissions/i.test(message);
+      throw new BadGatewayException(
+        missingScope
+          ? `${message} — Verifique se o token do canal foi gerado com a permissão instagram_business_manage_comments.`
+          : message,
+      );
     }
   }
 
