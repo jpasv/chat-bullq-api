@@ -17,6 +17,7 @@ function build() {
   const repo = {
     findById: jest.fn().mockResolvedValue(root),
     listRoots: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listMedia: jest.fn().mockResolvedValue([]),
     createOrUpdateFromWebhook: jest.fn(),
     update: jest.fn().mockImplementation(async (_id, data) => ({ ...root, ...data })),
     markParentReplied: jest.fn().mockResolvedValue(undefined),
@@ -66,6 +67,31 @@ describe('SocialCommentsService', () => {
       const { service, repo } = build();
       await service.list('org1', 'ALL', { unreplied: 'true' });
       expect(repo.listRoots).toHaveBeenCalledWith(expect.objectContaining({ unreplied: true, channelIds: undefined, limit: 30 }));
+    });
+
+    it('mediaId é repassado ao repository', async () => {
+      const { service, repo } = build();
+      await service.list('org1', 'ALL', { mediaId: 'm1' });
+      expect(repo.listRoots).toHaveBeenCalledWith(expect.objectContaining({ mediaId: 'm1' }));
+    });
+  });
+
+  describe('listMedia', () => {
+    it('AGENT com Set de canais filtra por channelIds', async () => {
+      const { service, repo } = build();
+      await service.listMedia('org1', new Set(['ch1']), {});
+      expect(repo.listMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: 'org1', channelIds: ['ch1'], limit: 100 }),
+      );
+    });
+
+    it('channelId fora do acesso: 403 antes de consultar', async () => {
+      const { service, repo, channelAccess } = build();
+      channelAccess.assertChannelAccess.mockImplementation(() => {
+        throw new ForbiddenException();
+      });
+      await expect(service.listMedia('org1', new Set(['ch1']), { channelId: 'ch2' })).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.listMedia).not.toHaveBeenCalled();
     });
 
     it('channelId fora do acesso: valida com assertChannelAccess e rejeita 403', async () => {

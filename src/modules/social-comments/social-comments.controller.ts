@@ -5,7 +5,7 @@ import { JwtAuthGuard, OrgGuard, RolesGuard } from '../../common/guards';
 import { CurrentChannelAccess, CurrentOrg, CurrentUser, Roles } from '../../common/decorators';
 import { ChannelAccess } from '../iam/channel-access/channel-access.service';
 import { SocialCommentsService } from './social-comments.service';
-import { ListCommentsQueryDto } from './dto/list-comments.query.dto';
+import { ListCommentsQueryDto, ListMediaQueryDto } from './dto/list-comments.query.dto';
 import { ReplyCommentDto } from './dto/reply-comment.dto';
 import { HideCommentDto } from './dto/hide-comment.dto';
 
@@ -24,6 +24,16 @@ export class SocialCommentsController {
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
     return this.service.list(orgId, access, query);
+  }
+
+  @Get('media')
+  @ApiOperation({ summary: 'Lista posts com comentários e contagens (total / sem resposta)' })
+  listMedia(
+    @Query() query: ListMediaQueryDto,
+    @CurrentOrg('id') orgId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.listMedia(orgId, access, query);
   }
 
   @Post(':id/reply')

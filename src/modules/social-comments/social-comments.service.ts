@@ -24,7 +24,7 @@ import { MessagesRepository } from '../messaging/messages/messages.repository';
 import { LlmService } from '../ai-agents/llm/llm.service';
 import { SAKANA_CONVERSATION_MODEL } from '../ai-agents/llm/llm.constants';
 import { SocialCommentsRepository, SocialCommentView } from './social-comments.repository';
-import { ListCommentsQueryDto } from './dto/list-comments.query.dto';
+import { ListCommentsQueryDto, ListMediaQueryDto } from './dto/list-comments.query.dto';
 
 /** Instagram só permite abrir DM a partir de um comentário até 7 dias após ele. */
 const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -53,10 +53,24 @@ export class SocialCommentsService {
       organizationId: orgId,
       channelIds: access === 'ALL' ? undefined : [...access],
       channelId: query.channelId,
+      mediaId: query.mediaId,
       status: query.status,
       unreplied: query.unreplied === 'true',
       cursor: query.cursor,
       limit: query.limit ?? 30,
+    });
+  }
+
+  /** Posts com comentários, com contagem total e de sem resposta. */
+  async listMedia(orgId: string, access: ChannelAccess, query: ListMediaQueryDto) {
+    if (query.channelId) {
+      this.channelAccess.assertChannelAccess(access, query.channelId);
+    }
+    return this.repo.listMedia({
+      organizationId: orgId,
+      channelIds: access === 'ALL' ? undefined : [...access],
+      channelId: query.channelId,
+      limit: 100,
     });
   }
 

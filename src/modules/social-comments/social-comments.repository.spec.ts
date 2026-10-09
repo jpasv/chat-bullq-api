@@ -10,6 +10,7 @@ function build() {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       updateMany: jest.fn(),
+      groupBy: jest.fn(),
     },
   };
   const repo = new SocialCommentsRepository(prisma as any);
@@ -164,6 +165,80 @@ describe('SocialCommentsRepository', () => {
 
       expect(out.items).toHaveLength(2);
       expect(out.nextCursor).toBeNull();
+    });
+  });
+
+  describe('listRoots — filtro por mediaId', () => {
+    it('mediaId entra no where', async () => {
+      const { repo, prisma } = build();
+      prisma.socialComment.findMany.mockResolvedValueOnce([]);
+
+      await repo.listRoots({ organizationId: 'org1', mediaId: 'm1', limit: 30 });
+
+      const where = prisma.socialComment.findMany.mock.calls[0][0].where;
+      expect(where.mediaId).toBe('m1');
+    });
+  });
+
+  describe('listMedia', () => {
+    it('agrupa por post com total, sem resposta e dados da mídia', async () => {
+      const { repo, prisma } = build();
+      prisma.socialComment.groupBy
+        .mockResolvedValueOnce([
+          { channelId: 'ch1', mediaId: 'm1', _count: { _all: 5 }, _max: { commentedAt: new Date('2026-10-09T10:00:00Z') } },
+          { channelId: 'ch1', mediaId: 'm2', _count: { _all: 2 }, _max: { commentedAt: new Date('2026-10-08T10:00:00Z') } },
+        ])
+        .mockResolvedValueOnce([{ channelId: 'ch1', mediaId: 'm1', _count: { _all: 3 } }]);
+      prisma.socialComment.findMany.mockResolvedValueOnce([
+        { channelId: 'ch1', mediaId: 'm1', mediaPermalink: 'https://ig/p/1', mediaCaption: 'Promo', mediaThumbnailUrl: 'https://cdn/1.jpg' },
+        { channelId: 'ch1', mediaId: 'm2', mediaPermalink: null, mediaCaption: null, mediaThumbnailUrl: null },
+      ]);
+
+      const out = await repo.listMedia({ organizationId: 'org1', channelIds: ['ch1'], limit: 100 });
+
+      const totalsWhere = prisma.socialComment.groupBy.mock.calls[0][0].where;
+      expect(totalsWhere).toMatchObject({
+        organizationId: 'org1',
+        parentExternalId: null,
+        channelId: { in: ['ch1'] },
+        status: { not: 'DELETED' },
+      });
+      const unrepliedWhere = prisma.socialComment.groupBy.mock.calls[1][0].where;
+      expect(unrepliedWhere).toMatchObject({ repliedAt: null, status: 'VISIBLE', isFromPage: false });
+
+      expect(out).toEqual([
+        {
+          channelId: 'ch1',
+          mediaId: 'm1',
+          mediaPermalink: 'https://ig/p/1',
+          mediaCaption: 'Promo',
+          mediaThumbnailUrl: 'https://cdn/1.jpg',
+          total: 5,
+          unreplied: 3,
+          lastCommentAt: new Date('2026-10-09T10:00:00Z'),
+        },
+        {
+          channelId: 'ch1',
+          mediaId: 'm2',
+          mediaPermalink: null,
+          mediaCaption: null,
+          mediaThumbnailUrl: null,
+          total: 2,
+          unreplied: 0,
+          lastCommentAt: new Date('2026-10-08T10:00:00Z'),
+        },
+      ]);
+    });
+
+    it('channelId fora do acesso: where vazio e nenhuma consulta extra', async () => {
+      const { repo, prisma } = build();
+      prisma.socialComment.groupBy.mockResolvedValueOnce([]);
+
+      const out = await repo.listMedia({ organizationId: 'org1', channelIds: ['ch1'], channelId: 'ch2', limit: 100 });
+
+      expect(prisma.socialComment.groupBy.mock.calls[0][0].where.channelId).toEqual({ in: [] });
+      expect(prisma.socialComment.groupBy).toHaveBeenCalledTimes(1);
+      expect(out).toEqual([]);
     });
   });
 });

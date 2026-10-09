@@ -20,10 +20,45 @@ export interface ListRootsParams {
   /** Canais permitidos. `undefined` = todos da org. */
   channelIds?: string[];
   channelId?: string;
+  mediaId?: string;
   status?: SocialCommentStatus;
   unreplied?: boolean;
   cursor?: string;
   limit: number;
+}
+
+export interface ListMediaParams {
+  organizationId: string;
+  /** Canais permitidos. `undefined` = todos da org. */
+  channelIds?: string[];
+  channelId?: string;
+  limit: number;
+}
+
+/** Um post (mídia do Instagram) com o resumo dos comentários raiz dele. */
+export interface SocialMediaSummary {
+  channelId: string;
+  mediaId: string;
+  mediaPermalink: string | null;
+  mediaCaption: string | null;
+  mediaThumbnailUrl: string | null;
+  /** Comentários raiz não deletados. */
+  total: number;
+  /** Raízes visíveis, de terceiros, sem resposta da página. */
+  unreplied: number;
+  lastCommentAt: Date;
+}
+
+/** Restrição de canal: interseção entre canais acessíveis e canal pedido. */
+function channelWhere(
+  channelIds?: string[],
+  channelId?: string,
+): Prisma.SocialCommentWhereInput['channelId'] | undefined {
+  if (channelId) {
+    if (channelIds && !channelIds.includes(channelId)) return { in: [] };
+    return channelId;
+  }
+  return channelIds ? { in: channelIds } : undefined;
 }
 
 @Injectable()
@@ -146,14 +181,9 @@ export class SocialCommentsRepository {
       organizationId: params.organizationId,
       parentExternalId: null,
     };
-    if (params.channelIds) where.channelId = { in: params.channelIds };
-    if (params.channelId) {
-      if (params.channelIds && !params.channelIds.includes(params.channelId)) {
-        where.channelId = { in: [] };
-      } else {
-        where.channelId = params.channelId;
-      }
-    }
+    const channel = channelWhere(params.channelIds, params.channelId);
+    if (channel !== undefined) where.channelId = channel;
+    if (params.mediaId) where.mediaId = params.mediaId;
     if (params.status) where.status = params.status;
     if (params.unreplied) {
       where.repliedAt = null;
@@ -201,5 +231,75 @@ export class SocialCommentsRepository {
         ? `${page[page.length - 1].commentedAt.getTime()}_${page[page.length - 1].id}`
         : null,
     };
+  }
+
+  /**
+   * Posts com comentários, do mais recente pro mais antigo (pelo último
+   * comentário). Três consultas: totais por post, sem-resposta por post e
+   * uma linha por post pra permalink/legenda/thumb (o enriquecimento grava
+   * os mesmos dados em todas as linhas do post, então qualquer uma serve).
+   */
+  async listMedia(params: ListMediaParams): Promise<SocialMediaSummary[]> {
+    const where: Prisma.SocialCommentWhereInput = {
+      organizationId: params.organizationId,
+      parentExternalId: null,
+      status: { not: SocialCommentStatus.DELETED },
+    };
+    const channel = channelWhere(params.channelIds, params.channelId);
+    if (channel !== undefined) where.channelId = channel;
+
+    const totals = await this.prisma.socialComment.groupBy({
+      by: ['channelId', 'mediaId'],
+      where,
+      _count: { _all: true },
+      _max: { commentedAt: true },
+      orderBy: { _max: { commentedAt: 'desc' } },
+      take: params.limit,
+    });
+    if (totals.length === 0) return [];
+
+    const pairs = totals.map((t) => ({ channelId: t.channelId, mediaId: t.mediaId }));
+    const [unreplied, mediaRows] = await Promise.all([
+      this.prisma.socialComment.groupBy({
+        by: ['channelId', 'mediaId'],
+        where: {
+          ...where,
+          OR: pairs,
+          repliedAt: null,
+          status: SocialCommentStatus.VISIBLE,
+          isFromPage: false,
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.socialComment.findMany({
+        where: { OR: pairs },
+        distinct: ['channelId', 'mediaId'],
+        select: {
+          channelId: true,
+          mediaId: true,
+          mediaPermalink: true,
+          mediaCaption: true,
+          mediaThumbnailUrl: true,
+        },
+      }),
+    ]);
+
+    const key = (r: { channelId: string; mediaId: string }) => `${r.channelId}:${r.mediaId}`;
+    const unrepliedByKey = new Map(unreplied.map((u) => [key(u), u._count._all]));
+    const mediaByKey = new Map(mediaRows.map((m) => [key(m), m]));
+
+    return totals.map((t) => {
+      const media = mediaByKey.get(key(t));
+      return {
+        channelId: t.channelId,
+        mediaId: t.mediaId,
+        mediaPermalink: media?.mediaPermalink ?? null,
+        mediaCaption: media?.mediaCaption ?? null,
+        mediaThumbnailUrl: media?.mediaThumbnailUrl ?? null,
+        total: t._count._all,
+        unreplied: unrepliedByKey.get(key(t)) ?? 0,
+        lastCommentAt: t._max.commentedAt ?? new Date(0),
+      };
+    });
   }
 }
