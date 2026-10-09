@@ -166,6 +166,33 @@ export class SocialCommentsRepository {
     });
   }
 
+  /**
+   * Foto do autor já conhecida sem ir à Graph: contato do inbox com o mesmo
+   * IGSID no canal, ou outro comentário dele já enriquecido.
+   */
+  async findKnownAuthorAvatar(channelId: string, authorExternalId: string): Promise<string | null> {
+    const contact = await this.prisma.contactChannel.findUnique({
+      where: { uq_contact_channel_external: { channelId, externalId: authorExternalId } },
+      select: { profileAvatarUrl: true, contact: { select: { avatarUrl: true } } },
+    });
+    const fromContact = contact?.profileAvatarUrl ?? contact?.contact?.avatarUrl ?? null;
+    if (fromContact) return fromContact;
+
+    const sibling = await this.prisma.socialComment.findFirst({
+      where: { channelId, authorExternalId, authorAvatarUrl: { not: null } },
+      select: { authorAvatarUrl: true },
+    });
+    return sibling?.authorAvatarUrl ?? null;
+  }
+
+  /** Aplica a foto em todos os comentários do autor no canal que ainda não têm. */
+  async applyAuthorAvatar(channelId: string, authorExternalId: string, avatarUrl: string) {
+    await this.prisma.socialComment.updateMany({
+      where: { channelId, authorExternalId, authorAvatarUrl: null },
+      data: { authorAvatarUrl: avatarUrl },
+    });
+  }
+
   async findThread(channelId: string, rootExternalId: string): Promise<SocialCommentView | null> {
     const root = await this.findByExternal(channelId, rootExternalId);
     if (!root) return null;

@@ -53,6 +53,9 @@ export class SocialCommentsIngestService {
     }
 
     await this.enrichMedia(channel, comment.mediaId);
+    if (created && !isFromPage) {
+      await this.enrichAuthorAvatar(channel, comment.authorExternalId);
+    }
 
     if (!created) return { created: false };
 
@@ -64,6 +67,27 @@ export class SocialCommentsIngestService {
     }
     this.logger.log(`Comment ${saved.externalId} ingested (channel ${channelId}, fromPage=${isFromPage})`);
     return { created: true };
+  }
+
+  /**
+   * Foto do autor, best-effort: contato do inbox ou outro comentário dele
+   * (grátis), senão `getUserProfile` na Graph — que só devolve `profile_pic`
+   * de quem já conversou com a conta. Sem foto, o front mostra a inicial.
+   */
+  private async enrichAuthorAvatar(channel: { id: string } & Record<string, any>, authorExternalId: string) {
+    try {
+      const known = await this.repo.findKnownAuthorAvatar(channel.id, authorExternalId);
+      if (known) {
+        await this.repo.applyAuthorAvatar(channel.id, authorExternalId, known);
+        return;
+      }
+      const profile = await this.instagram.getUserProfile(channel as any, authorExternalId);
+      if (profile?.profile_pic) {
+        await this.repo.applyAuthorAvatar(channel.id, authorExternalId, profile.profile_pic);
+      }
+    } catch (err: any) {
+      this.logger.warn(`author avatar(${authorExternalId}) failed: ${err?.message ?? err}`);
+    }
   }
 
   private async enrichMedia(channel: { id: string } & Record<string, any>, mediaId: string) {

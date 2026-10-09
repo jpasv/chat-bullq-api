@@ -10,8 +10,10 @@ function build() {
     findEnrichedSibling: jest.fn().mockResolvedValue(null),
     applyMediaToAll: jest.fn().mockResolvedValue(undefined),
     findThread: jest.fn(),
+    findKnownAuthorAvatar: jest.fn().mockResolvedValue(null),
+    applyAuthorAvatar: jest.fn().mockResolvedValue(undefined),
   };
-  const http = { getMedia: jest.fn() };
+  const http = { getMedia: jest.fn(), getUserProfile: jest.fn().mockResolvedValue(null) };
   const realtime = { emitToChannel: jest.fn() };
   const service = new SocialCommentsIngestService(
     prisma as any,
@@ -52,6 +54,60 @@ describe('SocialCommentsIngestService.ingest', () => {
       mediaThumbnailUrl: 'https://cdn/x.jpg',
     });
     expect(realtime.emitToChannel).toHaveBeenCalledWith('ch1', 'comment:new', expect.objectContaining({ id: 's1' }));
+  });
+
+  describe('foto do autor', () => {
+    const saved = { id: 's1', ...comment, channelId: 'ch1', parentExternalId: null, isFromPage: false };
+
+    it('usa foto já conhecida (contato do inbox ou outro comentário) sem chamar a Graph', async () => {
+      const { service, repo, http } = build();
+      repo.createOrUpdateFromWebhook.mockResolvedValue({ row: saved, created: true });
+      repo.findEnrichedSibling.mockResolvedValue({ mediaPermalink: 'x' });
+      repo.findKnownAuthorAvatar.mockResolvedValue('https://cdn/maria.jpg');
+      repo.findThread.mockResolvedValue({ ...saved, replies: [] });
+
+      await service.ingest({ channelId: 'ch1', organizationId: 'org1', comment });
+
+      expect(repo.applyAuthorAvatar).toHaveBeenCalledWith('ch1', '5550001', 'https://cdn/maria.jpg');
+      expect(http.getUserProfile).not.toHaveBeenCalled();
+    });
+
+    it('sem foto conhecida: tenta a Graph e grava se vier profile_pic', async () => {
+      const { service, repo, http } = build();
+      repo.createOrUpdateFromWebhook.mockResolvedValue({ row: saved, created: true });
+      repo.findEnrichedSibling.mockResolvedValue({ mediaPermalink: 'x' });
+      http.getUserProfile.mockResolvedValue({ username: 'maria.s', profile_pic: 'https://cdn/pic.jpg' });
+      repo.findThread.mockResolvedValue({ ...saved, replies: [] });
+
+      await service.ingest({ channelId: 'ch1', organizationId: 'org1', comment });
+
+      expect(http.getUserProfile).toHaveBeenCalledWith(channel, '5550001');
+      expect(repo.applyAuthorAvatar).toHaveBeenCalledWith('ch1', '5550001', 'https://cdn/pic.jpg');
+    });
+
+    it('Graph sem foto ou com erro: segue sem avatar', async () => {
+      const { service, repo, http } = build();
+      repo.createOrUpdateFromWebhook.mockResolvedValue({ row: saved, created: true });
+      repo.findEnrichedSibling.mockResolvedValue({ mediaPermalink: 'x' });
+      http.getUserProfile.mockRejectedValue(new Error('consent required'));
+      repo.findThread.mockResolvedValue({ ...saved, replies: [] });
+
+      await expect(service.ingest({ channelId: 'ch1', organizationId: 'org1', comment })).resolves.toEqual({ created: true });
+      expect(repo.applyAuthorAvatar).not.toHaveBeenCalled();
+    });
+
+    it('comentário da própria página não busca foto', async () => {
+      const { service, repo, http } = build();
+      const own = { ...comment, externalId: 'c9', authorExternalId: '1784' };
+      repo.createOrUpdateFromWebhook.mockResolvedValue({ row: { ...saved, ...own, isFromPage: true }, created: true });
+      repo.findEnrichedSibling.mockResolvedValue({ mediaPermalink: 'x' });
+      repo.findThread.mockResolvedValue({ ...saved, replies: [] });
+
+      await service.ingest({ channelId: 'ch1', organizationId: 'org1', comment: own });
+
+      expect(repo.findKnownAuthorAvatar).not.toHaveBeenCalled();
+      expect(http.getUserProfile).not.toHaveBeenCalled();
+    });
   });
 
   it('reprocessar o mesmo comentário não cria de novo e não emite', async () => {

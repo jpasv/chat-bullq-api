@@ -653,6 +653,9 @@ model SocialComment {
   mediaThumbnailUrl          String?             @map("media_thumbnail_url")
   authorExternalId           String              @map("author_external_id")
   authorUsername             String?             @map("author_username")
+  // Foto do autor. A Meta só libera `profile_pic` de quem já conversou com a
+  // conta; fica null pros demais e o front mostra a inicial.
+  authorAvatarUrl            String?             @map("author_avatar_url")
   text                       String              @db.Text
   status                     SocialCommentStatus @default(VISIBLE)
   isFromPage                 Boolean             @default(false) @map("is_from_page")
