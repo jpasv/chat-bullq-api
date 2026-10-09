@@ -27,7 +27,7 @@ export class SqlToolExecutorService implements OnModuleDestroy {
     tool: AiTool,
     input: Record<string, unknown>,
     ctx: ToolContext,
-    options: { bypassPendingGate?: boolean } = {},
+    options: { bypassPendingGate?: boolean; idempotencyKey?: string } = {},
   ): Promise<ToolResult> {
     if (skill.source !== 'SQL') {
       throw new Error(`Skill ${skill.name} is not a SQL skill`);

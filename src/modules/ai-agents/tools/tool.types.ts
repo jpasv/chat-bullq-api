@@ -5,6 +5,8 @@ import { LlmToolDefinition } from '../llm/llm.types';
  * need to mutate the system on behalf of the agent.
  */
 export interface ToolContext {
+  /** Stable approval key, also available to SQL parameter mappings. */
+  idempotencyKey?: string;
   chainDepth?: number;
   /** Chamada originada de uma menção no prompt: destino/ids já validados na compilação. */
   viaMention?: boolean;

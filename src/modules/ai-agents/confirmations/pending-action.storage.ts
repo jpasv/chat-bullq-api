@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../database/prisma.service';
@@ -23,11 +23,28 @@ export class PendingActionStorage {
 
   async save(
     action: PendingAction,
-    _previousStatus?: PendingActionStatus,
+    previousStatus?: PendingActionStatus,
   ): Promise<void> {
-    await this.prisma.aiPendingAction.upsert({
-      where: { id: action.id },
-      create: {
+    const data = {
+      status: action.status,
+      approvedBy: action.approvedBy ?? null,
+      approvedAt: action.approvedAt ? new Date(action.approvedAt) : null,
+      rejectedBy: action.rejectedBy ?? null,
+      rejectedAt: action.rejectedAt ? new Date(action.rejectedAt) : null,
+      rejectedReason: action.rejectedReason ?? null,
+      executionResult:
+        (action.executionResult as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+    };
+    if (previousStatus) {
+      const { count } = await this.prisma.aiPendingAction.updateMany({
+        where: { id: action.id, status: previousStatus },
+        data,
+      });
+      if (count !== 1) throw new ConflictException('Pending action status changed');
+      return;
+    }
+    await this.prisma.aiPendingAction.create({
+      data: {
         id: action.id,
         agentRunId: action.agentRunId,
         conversationId: action.conversationId,
@@ -35,27 +52,18 @@ export class PendingActionStorage {
         toolName: action.toolName,
         args: action.args as Prisma.InputJsonValue,
         preview: action.preview as unknown as Prisma.InputJsonValue,
-        status: action.status,
         expiresAt: new Date(action.expiresAt),
-        approvedBy: action.approvedBy ?? null,
-        approvedAt: action.approvedAt ? new Date(action.approvedAt) : null,
-        rejectedBy: action.rejectedBy ?? null,
-        rejectedAt: action.rejectedAt ? new Date(action.rejectedAt) : null,
-        rejectedReason: action.rejectedReason ?? null,
-        executionResult:
-          (action.executionResult as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-      },
-      update: {
-        status: action.status,
-        approvedBy: action.approvedBy ?? null,
-        approvedAt: action.approvedAt ? new Date(action.approvedAt) : null,
-        rejectedBy: action.rejectedBy ?? null,
-        rejectedAt: action.rejectedAt ? new Date(action.rejectedAt) : null,
-        rejectedReason: action.rejectedReason ?? null,
-        executionResult:
-          (action.executionResult as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+        ...data,
       },
     });
+  }
+
+  async acquire(id: string): Promise<boolean> {
+    const { count } = await this.prisma.aiPendingAction.updateMany({
+      where: { id, status: 'APPROVED' },
+      data: { status: 'EXECUTING' },
+    });
+    return count === 1;
   }
 
   async get(id: string): Promise<PendingAction | null> {

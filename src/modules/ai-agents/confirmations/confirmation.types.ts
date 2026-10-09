@@ -15,6 +15,7 @@ export type PendingActionStatus =
   | 'APPROVED'
   | 'REJECTED'
   | 'EXPIRED'
+  | 'EXECUTING'
   | 'EXECUTED';
 
 export type ImpactLevel = 'low' | 'medium' | 'high' | 'critical';

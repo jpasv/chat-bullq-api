@@ -50,7 +50,7 @@ export class HttpToolExecutorService {
     tool: AiTool,
     rawInput: Record<string, unknown>,
     ctx: ToolContext,
-    options: { bypassPendingGate?: boolean } = {},
+    options: { bypassPendingGate?: boolean; idempotencyKey?: string } = {},
   ): Promise<ToolResult> {
     if (skill.source !== 'HTTP') {
       throw new Error(`Skill ${skill.name} is not an HTTP skill`);
@@ -94,6 +94,13 @@ export class HttpToolExecutorService {
       ...this.renderHeaders(tool.httpHeaders, { input, ctx }),
       ...this.renderHeaders(skill.httpHeadersExtra, { input, ctx }),
     };
+
+    if (options.idempotencyKey) {
+      for (const name of Object.keys(headers)) {
+        if (name.toLowerCase() === 'idempotency-key') delete headers[name];
+      }
+      headers['Idempotency-Key'] = options.idempotencyKey;
+    }
 
     let body: string | undefined;
     if (skill.httpBodyTemplate && method !== 'GET' && method !== 'DELETE') {
@@ -164,7 +171,7 @@ export class HttpToolExecutorService {
     }
   }
 
-  async approvalGate(skill: AiSkill, input: Record<string, unknown>, ctx: ToolContext, options: { bypassPendingGate?: boolean } = {}): Promise<ToolResult | null> {
+  async approvalGate(skill: AiSkill, input: Record<string, unknown>, ctx: ToolContext, options: { bypassPendingGate?: boolean; idempotencyKey?: string } = {}): Promise<ToolResult | null> {
     if (skill.organizationId !== ctx.organizationId) throw new Error('Skill outside organization');
     const link = ctx.skillBindings ? ctx.skillBindings.find(b => b.skillId === skill.id) : await this.prisma.aiAgentSkill.findUnique({
       where: { agentId_skillId: { agentId: ctx.agentId, skillId: skill.id } },

@@ -28,6 +28,7 @@ function buildService(rows: {
         .fn()
         .mockResolvedValue((rows.grants ?? []).map((channelId) => ({ channelId }))),
       deleteMany: jest.fn(),
+      updateMany: jest.fn(),
       create: jest.fn(),
     },
     userOrganization: {

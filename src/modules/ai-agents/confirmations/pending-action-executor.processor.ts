@@ -35,7 +35,9 @@ type ExecutorJobData =
  *   - grava `executionResult` e marca status `EXECUTED`
  *
  * Falhas resultam em status APPROVED + executionResult com error → operador
- * pode enfileirar nova tentativa. Não bloqueia outras pendings.
+ * pode enfileirar nova tentativa com a mesma chave de idempotência.
+ * Se o worker morrer ou não conseguir persistir o resultado, EXECUTING é
+ * preservado: reconciliar o efeito externo antes de liberar nova tentativa.
  */
 @Processor(PENDING_ACTION_EXECUTOR_QUEUE, { concurrency: 4 })
 export class PendingActionExecutorProcessor extends WorkerHost {
@@ -69,6 +71,10 @@ export class PendingActionExecutorProcessor extends WorkerHost {
       return { skipped: true, reason: `status_${action.status}` };
     }
 
+    if (!(await this.storage.acquire(pendingActionId))) {
+      return { skipped: true, reason: 'already_claimed' };
+    }
+
     const startedAt = Date.now();
     let result: unknown;
     let success = true;
@@ -95,13 +101,15 @@ export class PendingActionExecutorProcessor extends WorkerHost {
       );
     }
 
-    await this.prisma.aiPendingAction.update({
-      where: { id: pendingActionId },
+    const completed = await this.prisma.aiPendingAction.updateMany({
+      where: { id: pendingActionId, status: 'EXECUTING' },
       data: {
         status: success ? 'EXECUTED' : 'APPROVED', // re-tentável se falhou
         executionResult: (result as Prisma.InputJsonValue) ?? Prisma.JsonNull,
       },
     });
+
+    if (completed.count !== 1) throw new Error('Pending action execution ownership lost');
 
     await this.prisma.aiToolCall.create({
       data: {
@@ -155,6 +163,7 @@ export class PendingActionExecutorProcessor extends WorkerHost {
     });
     if (!conversation) throw new Error('Conversation outside organization');
     return {
+      idempotencyKey: `pending-action-${action.id}`,
       organizationId: run.organizationId, conversationId: conversation.id,
       contactId: conversation.contactId, channelId: conversation.channelId,
       agentId: action.agentId, runId: action.agentRunId,
@@ -177,7 +186,10 @@ export class PendingActionExecutorProcessor extends WorkerHost {
     if (!tool) throw new Error('Tool not found or inactive');
     await this.actions.assertContext(ctx);
     const executor = skill.source === 'SQL' ? this.sqlExecutor : this.httpExecutor;
-    const result = await executor.execute(skill, tool, input, ctx, { bypassPendingGate: true });
+    const result = await executor.execute(skill, tool, input, ctx, {
+      bypassPendingGate: true,
+      idempotencyKey: ctx.idempotencyKey,
+    });
     return result.output;
   }
 }

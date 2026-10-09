@@ -16,7 +16,7 @@ function setup(channelId: string | null = 'channel') {
 describe('Channel access derived from department membership', () => {
   it('grants access atomically when a member joins a channel department', async () => {
     const { repository, tx } = setup(); await repository.addAgent('dept', 'member');
-    expect(tx.channelAgent.upsert).toHaveBeenCalledWith({ where: { channelId_userOrganizationId: { channelId: 'channel', userOrganizationId: 'member' } }, create: { channelId: 'channel', userOrganizationId: 'member' }, update: {} });
+    expect(tx.channelAgent.upsert).toHaveBeenCalledWith({ where: { channelId_userOrganizationId: { channelId: 'channel', userOrganizationId: 'member' } }, create: { channelId: 'channel', userOrganizationId: 'member', isManual: false }, update: {} });
   });
   it('general departments do not grant access to any channel', async () => {
     const { repository, tx } = setup(null); await repository.addAgent('dept', 'member');
@@ -29,14 +29,14 @@ describe('Channel access derived from department membership', () => {
   });
   it('removes access only on the last membership, scoped to that channel', async () => {
     const { repository, tx } = setup(); tx.departmentAgent.count.mockResolvedValue(0); await repository.removeAgent('dept', 'member');
-    expect(tx.channelAgent.deleteMany).toHaveBeenCalledWith({ where: { channelId: 'channel', userOrganizationId: 'member' } });
+    expect(tx.channelAgent.deleteMany).toHaveBeenCalledWith({ where: { channelId: 'channel', userOrganizationId: 'member', isManual: false } });
   });
   it('moves grants with a department and clears obsolete channel defaults', async () => {
     const { repository, tx } = setup(); tx.departmentAgent.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
     await repository.changeChannel('dept', 'new-channel');
     expect(tx.channel.updateMany).toHaveBeenCalledWith({ where: { defaultDepartmentId: 'dept' }, data: { defaultDepartmentId: null } });
-    expect(tx.channelAgent.deleteMany).toHaveBeenCalledWith({ where: { channelId: 'channel', userOrganizationId: 'member' } });
-    expect(tx.channelAgent.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: { channelId: 'new-channel', userOrganizationId: 'member' } }));
+    expect(tx.channelAgent.deleteMany).toHaveBeenCalledWith({ where: { channelId: 'channel', userOrganizationId: 'member', isManual: false } });
+    expect(tx.channelAgent.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: { channelId: 'new-channel', userOrganizationId: 'member', isManual: false } }));
   });
   it('does not move a department with conversations on another channel', async () => {
     const { repository, tx } = setup(); tx.conversation.count.mockResolvedValue(1);

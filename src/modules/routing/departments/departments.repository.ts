@@ -39,16 +39,17 @@ export class DepartmentsRepository {
   }
 
   // Membership in any active department of a channel grants access to that
-  // channel. Only remove the grant after the LAST such membership disappears.
+  // channel. Remove only derived grants after the LAST membership disappears;
+  // an explicit grant survives independently of department membership.
   private async syncGrant(tx: Prisma.TransactionClient, channelId: string, userOrganizationId: string) {
     const count = await tx.departmentAgent.count({ where: {
       userOrganizationId, isActive: true, department: { channelId, deletedAt: null },
     } });
     if (count) await tx.channelAgent.upsert({
       where: { channelId_userOrganizationId: { channelId, userOrganizationId } },
-      create: { channelId, userOrganizationId }, update: {},
+      create: { channelId, userOrganizationId, isManual: false }, update: {},
     });
-    else await tx.channelAgent.deleteMany({ where: { channelId, userOrganizationId } });
+    else await tx.channelAgent.deleteMany({ where: { channelId, userOrganizationId, isManual: false } });
   }
 
   async changeChannel(id: string, channelId: string | null) {

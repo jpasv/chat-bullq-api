@@ -231,6 +231,10 @@ export class ChannelAccessService {
     );
 
     await this.prisma.$transaction([
+      ...(channelIds.length ? [this.prisma.channelAgent.updateMany({
+        where: { userOrganizationId: membership.id, channelId: { in: channelIds } },
+        data: { isManual: true },
+      })] : []),
       ...(toRemove.length
         ? [
             this.prisma.channelAgent.deleteMany({
@@ -278,7 +282,7 @@ export class ChannelAccessService {
           userOrganizationId: membership.id,
         },
       },
-      update: {},
+      update: { isManual: true },
       create: {
         channelId,
         userOrganizationId: membership.id,
@@ -369,7 +373,7 @@ export class ChannelAccessService {
               userOrganizationId: callerUserOrganizationId,
             },
           },
-          update: {},
+          update: { isManual: true },
           create: {
             channelId,
             userOrganizationId: callerUserOrganizationId,

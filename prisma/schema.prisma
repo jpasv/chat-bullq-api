@@ -382,6 +382,7 @@ model ChannelAgent {
   userOrganizationId String   @map("user_organization_id")
   grantedAt          DateTime @default(now()) @map("granted_at")
   grantedById        String?  @map("granted_by_id")
+  isManual           Boolean  @default(true) @map("is_manual")
 
   channel          Channel          @relation(fields: [channelId], references: [id], onDelete: Cascade)
   userOrganization UserOrganization @relation(fields: [userOrganizationId], references: [id], onDelete: Cascade)
@@ -1368,6 +1369,7 @@ enum AiPendingActionStatus {
   APPROVED
   REJECTED
   EXPIRED
+  EXECUTING
   EXECUTED
 }
 
