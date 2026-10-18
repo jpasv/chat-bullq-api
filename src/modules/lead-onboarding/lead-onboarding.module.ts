@@ -37,6 +37,11 @@ import { ONBOARDING_TICK_QUEUE } from './lead-onboarding.constants';
     GoogleAuthService,
     DiagnosticCalendarService,
   ],
-  exports: [LeadOnboardingService, DiagnosticCalendarService, LeadOnboardingConfigService],
+  exports: [
+    LeadOnboardingService,
+    DiagnosticCalendarService,
+    LeadOnboardingConfigService,
+    OnboardingMessengerService,
+  ],
 })
 export class LeadOnboardingModule {}

@@ -259,6 +259,11 @@ export class LeadOnboardingService {
       await this.safe(() => this.hoppe.addComment(lead.hoppeTaskId, `Lead respondeu (detectado em ${fmt(now)}). Status movido para em qualificação.`));
       return true;
     }
+    if (guard === 'support') {
+      // Suporte (Lívia) atendendo: não interrompe, tenta de novo em 1h.
+      await this.repo.update(lead.id, { nextActionAt: new Date(now.getTime() + HOUR) });
+      return true;
+    }
     if (guard === 'human') {
       await this.repo.update(lead.id, { state: 'PAUSED', nextActionAt: null });
       await this.safe(() => this.hoppe.addComment(lead.hoppeTaskId, `Conversa assumida por humano ou IA desligada; contatos automáticos pausados em ${fmt(now)}.`));
@@ -429,6 +434,12 @@ export class LeadOnboardingService {
         lead.hoppeTaskId,
         `Diagnóstico de IA agendado para ${fmt(new Date(meeting.startIso))} (1h) com ${meeting.attendees.join(', ')}. Meet: ${meeting.meetLink ?? 'link no convite'}.`,
       ),
+    );
+  }
+
+  async noteSupport(lead: OnboardingLead, motivo: string): Promise<void> {
+    await this.safe(() =>
+      this.hoppe.addComment(lead.hoppeTaskId, `Demanda de suporte encaminhada à Lívia em ${fmt(new Date())}: ${motivo}. Depois do suporte, a qualificação continua.`),
     );
   }
 

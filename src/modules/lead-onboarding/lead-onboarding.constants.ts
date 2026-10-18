@@ -56,5 +56,12 @@ export type OnboardingState =
   | 'PAUSED'
   | 'SKIPPED';
 
+/**
+ * Instrução que vai no "Contexto do lead" enquanto o suporte (Lívia) atende
+ * uma conversa do onboarding. Sai quando ela devolve.
+ */
+export const SUPPORT_RETURN_NOTE =
+  'Você (suporte) foi chamada para resolver uma demanda de suporte deste lead do onboarding. Resolva só o suporte. Assim que estiver resolvido (ou se o cliente mudar de assunto), chame handBackToOrchestrator: a conversa volta para o agente de onboarding continuar a qualificação.';
+
 /** Origem gravada no metadata das mensagens que o sistema manda. */
 export const ATTEMPT_MESSAGE_SOURCE = 'lead_onboarding_attempt';

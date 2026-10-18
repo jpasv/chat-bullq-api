@@ -12,7 +12,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
-import { ATTEMPT_MESSAGE_SOURCE } from './lead-onboarding.constants';
+import { ATTEMPT_MESSAGE_SOURCE, SUPPORT_RETURN_NOTE } from './lead-onboarding.constants';
 
 /** O 1258 é o WhatsApp pessoal do Tiago: conversa em andamento com ele não é nossa. */
 export class HumanConversationError extends Error {
@@ -116,12 +116,15 @@ export class OnboardingMessengerService {
   async conversationGuard(
     conversationId: string,
     since: Date | null,
-  ): Promise<'replied' | 'human' | null> {
+  ): Promise<'replied' | 'human' | 'support' | null> {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       select: { aiEnabled: true, assignedToId: true, activeAgentId: true },
     });
     if (!conv) return 'human';
+    if (conv.activeAgentId === this.config.supportAgentId && conv.aiEnabled !== false && !conv.assignedToId) {
+      return 'support';
+    }
     if (conv.aiEnabled === false || conv.assignedToId || conv.activeAgentId !== this.config.agentId) {
       return 'human';
     }
@@ -133,6 +136,50 @@ export class OnboardingMessengerService {
       if (inbound) return 'replied';
     }
     return null;
+  }
+
+  /**
+   * Passa a conversa pro agente de suporte e marca pra quem devolver. A nota
+   * no promptContext diz ao suporte pra devolver quando terminar.
+   */
+  async delegateToSupport(conversationId: string, fromAgentId: string): Promise<string> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { metadata: true },
+    });
+    const md = { ...((conv?.metadata as Record<string, any>) ?? {}) };
+    const base = typeof md.promptContext === 'string' ? md.promptContext : '';
+    md.promptContext = base.includes(SUPPORT_RETURN_NOTE) ? base : `${base}\n\n${SUPPORT_RETURN_NOTE}`.trim();
+    md.returnToAgentId = fromAgentId;
+    const supportAgentId = this.config.supportAgentId;
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { activeAgentId: supportAgentId, aiEnabled: true, metadata: md as Prisma.InputJsonValue },
+    });
+    return supportAgentId;
+  }
+
+  /**
+   * Volta do suporte: se a conversa foi encaminhada pelo onboarding, devolve o
+   * agente de origem e limpa a marcação. Null = conversa não é do onboarding.
+   */
+  async returnFromSupport(conversationId: string): Promise<string | null> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { metadata: true },
+    });
+    const md = { ...((conv?.metadata as Record<string, any>) ?? {}) };
+    const target = typeof md.returnToAgentId === 'string' ? md.returnToAgentId : null;
+    if (!target) return null;
+    delete md.returnToAgentId;
+    if (typeof md.promptContext === 'string') {
+      md.promptContext = md.promptContext.replace(SUPPORT_RETURN_NOTE, '').trim();
+    }
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { activeAgentId: target, metadata: md as Prisma.InputJsonValue },
+    });
+    return target;
   }
 
   /** Humano assumiu: desliga a IA só nesta conversa. */

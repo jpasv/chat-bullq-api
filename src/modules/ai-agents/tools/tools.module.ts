@@ -35,6 +35,7 @@ import { ConsultarHorariosDiagnosticoTool } from './builtin/consultar-horarios-d
 import { AgendarDiagnosticoTool } from './builtin/agendar-diagnostico.tool';
 import { RegistrarQualificacaoTool } from './builtin/registrar-qualificacao.tool';
 import { RegistrarOptOutTool } from './builtin/registrar-opt-out.tool';
+import { EncaminharSuporteTool } from './builtin/encaminhar-suporte.tool';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { RegistrarOptOutTool } from './builtin/registrar-opt-out.tool';
     AgendarDiagnosticoTool,
     RegistrarQualificacaoTool,
     RegistrarOptOutTool,
+    EncaminharSuporteTool,
     ToolRegistry,
     HttpToolExecutorService,
     SqlToolExecutorService,
