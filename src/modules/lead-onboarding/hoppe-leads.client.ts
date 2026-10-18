@@ -76,9 +76,11 @@ export class HoppeLeadsClient {
   }
 
   async addTag(taskId: string, tagName: string): Promise<void> {
+    // Corpo {} obrigatório: o Hoppe responde 500 a POST com content-type JSON e corpo vazio.
     await this.request(
       'POST',
       `/api/v2/task/${taskId}/tag/${encodeURIComponent(tagName)}`,
+      {},
     );
   }
 
