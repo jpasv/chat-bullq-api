@@ -33,6 +33,9 @@ export const HOPPE_FIELD_NAMES = {
   PRODUTOS: 'Produtos',
 } as const;
 
+/** Tag do Hoppe que autoriza a abordagem pela IA. */
+export const TRIGGER_TAG = 'abordar-ia';
+
 export const ATIVIDADE = { ATIVO: 'Ativo', INATIVO: 'Inativo' } as const;
 
 /** Tags de tentativa já existentes no space Comercial. */
