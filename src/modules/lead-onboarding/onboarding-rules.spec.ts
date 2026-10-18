@@ -1,5 +1,6 @@
 import {
   adjustToSendWindow,
+  stripTrailingPeriod,
   firstName,
   isRio,
   LeadSnapshot,
@@ -96,17 +97,17 @@ describe('renderAttempt', () => {
   });
   it('mensagens 2 e 3 são as do spec', () => {
     expect(renderAttempt(2, lead())).toBe(
-      'Mayara, ficou alguma dúvida para começar a usar o 57 Agents Advocacia? Pode me contar por aqui.',
+      'Mayara, ficou alguma dúvida para começar a usar o 57 Agents Advocacia? Pode me contar por aqui',
     );
     expect(renderAttempt(3, lead())).toBe(
-      'Vou encerrar esse acompanhamento por aqui, Mayara. Se precisar de ajuda com o 57 Agents Advocacia, pode escrever neste número.',
+      'Vou encerrar esse acompanhamento por aqui, Mayara. Se precisar de ajuda com o 57 Agents Advocacia, pode escrever neste número',
     );
   });
   it('nunca envia placeholder vazio', () => {
     const msg = renderAttempt(2, lead({ firstName: '', name: null, produto: null }));
     expect(msg).not.toMatch(/\{|\}/);
     expect(msg).toBe(
-      'Ficou alguma dúvida para começar a usar o produto? Pode me contar por aqui.',
+      'Ficou alguma dúvida para começar a usar o produto? Pode me contar por aqui',
     );
   });
 });
@@ -115,5 +116,15 @@ describe('firstName', () => {
   it('pega o primeiro nome capitalizado', () => {
     expect(firstName('RHIANN brigido pereira')).toBe('Rhiann');
     expect(firstName(null)).toBe('');
+  });
+});
+
+describe('stripTrailingPeriod', () => {
+  it('tira o ponto final de cada linha e mantém o resto', () => {
+    expect(stripTrailingPeriod('Pode olhar com calma.')).toBe('Pode olhar com calma');
+    expect(stripTrailingPeriod('Tudo bem. Me chama aqui.\nAbraço.')).toBe('Tudo bem. Me chama aqui\nAbraço');
+    expect(stripTrailingPeriod('Conseguiu olhar?')).toBe('Conseguiu olhar?');
+    expect(stripTrailingPeriod('Deixa eu ver...')).toBe('Deixa eu ver...');
+    expect(stripTrailingPeriod('Link: https://bravy.com.br.')).toBe('Link: https://bravy.com.br');
   });
 });

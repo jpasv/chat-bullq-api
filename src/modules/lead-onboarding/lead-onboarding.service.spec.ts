@@ -153,7 +153,7 @@ describe('LeadOnboardingService.tick', () => {
     const { service, repo, hoppe, messenger } = build({ lead });
     await service.tick(brt('2026-10-18T14:00:00'));
     expect(messenger.send.mock.calls[0][0].text).toBe(
-      'Mayara, ficou alguma dúvida para começar a usar o 57 Agents Advocacia? Pode me contar por aqui.',
+      'Mayara, ficou alguma dúvida para começar a usar o 57 Agents Advocacia? Pode me contar por aqui',
     );
     expect(hoppe.addTag).toHaveBeenCalledWith(TASK, '2º mensagem');
     expect(repo.update.mock.calls.at(-1)![1].attempt).toBe(2);

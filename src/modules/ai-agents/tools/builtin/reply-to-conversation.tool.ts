@@ -10,6 +10,7 @@ import { PrismaService } from '../../../../database/prisma.service';
 import { RealtimeGateway } from '../../../realtime/realtime.gateway';
 import { AiTool, ToolContext, ToolResult } from '../tool.types';
 import { containsMetaTalk, findForbiddenUrlHosts } from '../../runner/text-guards';
+import { stripTrailingPeriod } from '../../../lead-onboarding/onboarding-rules';
 
 /**
  * Sends a TEXT message to the contact on behalf of the agent. The message
@@ -48,7 +49,11 @@ export class ReplyToConversationTool implements AiTool {
     input: Record<string, unknown>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
-    const text = String(input.text ?? '').trim();
+    const raw = String(input.text ?? '').trim();
+    // Onboarding pós-venda (WhatsApp pessoal do Tiago): sem ponto final no fim
+    // das linhas, pra não soar como IA.
+    const text =
+      ctx.agentId === process.env.ONBOARDING_AGENT_ID ? stripTrailingPeriod(raw) : raw;
     if (!text) {
       return { output: { ok: false, error: 'text is empty' } };
     }

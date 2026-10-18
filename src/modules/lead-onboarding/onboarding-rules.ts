@@ -100,8 +100,23 @@ export function firstName(name: string | null): string {
 
 const OPENING = 'Aqui é da Bravy.';
 
-/** Copy literal das 3 tentativas (spec, seções 1 e 8). */
+/**
+ * Tira o ponto final de cada linha (pedido do Tiago: ponto final no fim da
+ * mensagem soa como IA no WhatsApp). Mantém reticências e pontuação interna.
+ */
+export function stripTrailingPeriod(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/(?<!\.)\.\s*$/, ''))
+    .join('\n');
+}
+
+/** Copy literal das 3 tentativas (spec, seções 1 e 8), sem ponto final. */
 export function renderAttempt(attempt: 1 | 2 | 3, lead: LeadSnapshot): string {
+  return stripTrailingPeriod(renderAttemptRaw(attempt, lead));
+}
+
+function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string {
   const nome = lead.firstName?.trim() || '';
   const produto = lead.produto?.trim() || 'o produto';
   const oProduto = lead.produto?.trim() ? `o ${produto}` : produto;
@@ -144,6 +159,11 @@ export function renderResume(
 ): string | null {
   const nome = lead.firstName?.trim();
   const pre = nome ? `${nome}, ` : '';
+  const msg = renderResumeRaw(reason, pre, socio);
+  return msg ? stripTrailingPeriod(msg) : null;
+}
+
+function renderResumeRaw(reason: string, pre: string, socio?: string | null): string | null {
   switch (reason) {
     case 'socios':
       return socio
