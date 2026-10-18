@@ -1,5 +1,6 @@
 import {
   adjustToSendWindow,
+  onboardingReplyDelayMs,
   stripTrailingPeriod,
   firstName,
   isRio,
@@ -126,5 +127,13 @@ describe('stripTrailingPeriod', () => {
     expect(stripTrailingPeriod('Conseguiu olhar?')).toBe('Conseguiu olhar?');
     expect(stripTrailingPeriod('Deixa eu ver...')).toBe('Deixa eu ver...');
     expect(stripTrailingPeriod('Link: https://bravy.com.br.')).toBe('Link: https://bravy.com.br');
+  });
+});
+
+describe('onboardingReplyDelayMs', () => {
+  it('fica entre 30 e 45 segundos', () => {
+    expect(onboardingReplyDelayMs(() => 0)).toBe(30_000);
+    expect(onboardingReplyDelayMs(() => 0.999999)).toBeLessThanOrEqual(45_000);
+    expect(onboardingReplyDelayMs(() => 0.5)).toBe(37_500);
   });
 });
