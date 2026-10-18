@@ -161,3 +161,74 @@ export function renderResume(
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/** Valor de custom field do Hoppe como texto (LABEL vem como array). */
+function fieldText(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (Array.isArray(v)) {
+    const items = v.map((x) => (typeof x === 'string' ? x : (x as any)?.name ?? '')).filter(Boolean);
+    return items.length ? items.join(', ') : null;
+  }
+  const s = String(v).trim();
+  return s || null;
+}
+
+/** Snapshot da task (campos indexados por nome, como o HoppeLeadsClient devolve). */
+export function snapshotFromTask(task: {
+  name: string;
+  fields: Record<string, unknown>;
+}): LeadSnapshot {
+  const f = task.fields;
+  const produtos = Array.isArray(f['Produtos'])
+    ? (f['Produtos'] as unknown[]).map((x) => (typeof x === 'string' ? x : (x as any)?.name)).filter(Boolean)
+    : [];
+  // O 1º produto que não é aula de boas-vindas/instalação é o que ele comprou.
+  const produto =
+    produtos.find((p) => !/boas-vindas|como baixar/i.test(String(p))) ??
+    produtos[0] ??
+    null;
+  return {
+    name: task.name || null,
+    firstName: firstName(task.name),
+    phone: normalizePhone(fieldText(f['WhatsApp'])),
+    email: fieldText(f['Email']),
+    produto: produto ? String(produto).trim() : null,
+    progresso: fieldText(f['Progresso com o produto']),
+    atuacao: fieldText(f['Atuação']),
+    equipe: fieldText(f['Tamanho da equipe']),
+    faturamento: fieldText(f['Faturamento mensal']),
+    estado: fieldText(f['Estado']),
+    gargalo: fieldText(f['Gargalo']),
+    meta: fieldText(f['Meta 12 meses']),
+  };
+}
+
+/** Só dígitos, com DDI 55 quando vier sem (10-11 dígitos nacionais). */
+export function normalizePhone(raw: string | null): string | null {
+  const d = (raw ?? '').replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length === 10 || d.length === 11) return `55${d}`;
+  return d;
+}
+
+/**
+ * Bloco "Contexto do lead" que entra no prompt do agente (via
+ * conversation.metadata.promptContext). Só dados do formulário + estado.
+ */
+export function buildPromptContext(lead: LeadSnapshot, extra: { attempt: number; state: string }): string {
+  const lines = [
+    `Lead do Hoppe (list Leads onboarding). Comprou: ${lead.produto ?? 'não informado'}.`,
+    `Nome: ${lead.name ?? 'não informado'}`,
+    `WhatsApp: ${lead.phone ?? 'não informado'}${isRio(lead.phone) ? ' (DDD 21, Rio)' : ''}`,
+    `E-mail do formulário: ${lead.email ?? 'não informado'}`,
+    `Progresso com o produto (formulário): ${lead.progresso ?? 'não informado'}`,
+    `Atuação: ${lead.atuacao ?? 'não informado'}`,
+    `Tamanho da equipe: ${lead.equipe ?? 'não informado'}`,
+    `Faturamento mensal (formulário): ${lead.faturamento ?? 'não informado'}`,
+    `Estado: ${lead.estado ?? 'não informado'}`,
+    `Gargalo (formulário): ${lead.gargalo ?? 'não informado'}`,
+    `Meta 12 meses (formulário): ${lead.meta ?? 'não informado'}`,
+    `Tentativas de abordagem já enviadas: ${extra.attempt}. Estado no fluxo: ${extra.state}.`,
+  ];
+  return lines.join('\n');
+}
