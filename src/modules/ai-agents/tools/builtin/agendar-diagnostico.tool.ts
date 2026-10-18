@@ -57,6 +57,9 @@ export class AgendarDiagnosticoTool implements AiTool {
   async execute(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
     const lead = await this.onboarding.findByConversation(ctx.conversationId);
     if (!lead) return { output: { ok: false, error: 'conversa_sem_lead' } };
+    if (lead.meetingEventId || lead.state === 'SCHEDULED') {
+      return { output: { ok: false, error: 'ja_agendado', hint: 'Já existe diagnóstico marcado. Para remarcar, transfira pro humano.' } };
+    }
 
     const inicioIso = String(input.inicioIso ?? '');
     const start = new Date(inicioIso);

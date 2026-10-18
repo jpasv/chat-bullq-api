@@ -90,4 +90,13 @@ describe('tools do onboarding', () => {
     const tool = new RegistrarQualificacaoTool(svc);
     expect(((await tool.execute({ resultado: 'talvez', motivo: 'x' }, ctx)).output as any).ok).toBe(false);
   });
+
+  it('I4: lead já agendado não cria segundo evento', async () => {
+    const { svc } = realService({ ...lead(), state: 'SCHEDULED', meetingEventId: 'ev0' });
+    const calendar = { create: jest.fn() };
+    const tool = new AgendarDiagnosticoTool(svc, calendar as any, { closerEmail: 'p@x' } as any);
+    const r = await tool.execute({ inicioIso: '2030-01-01T13:00:00.000Z', emails: ['m@x.com'], participantes: ['M'] }, ctx);
+    expect(r.output).toMatchObject({ ok: false, error: 'ja_agendado' });
+    expect(calendar.create).not.toHaveBeenCalled();
+  });
 });

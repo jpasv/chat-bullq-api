@@ -79,6 +79,37 @@ export class LeadOnboardingRepository {
     });
   }
 
+  /**
+   * Claim atômico da ação vencida: só um tick (ou réplica) passa daqui pro
+   * mesmo lead. Compara com o retrato lido — se o estado mudou no meio do
+   * lote (respondeu, opt-out, pausa), não processa.
+   */
+  async claim(lead: OnboardingLead): Promise<boolean> {
+    const r = await this.prisma.onboardingLead.updateMany({
+      where: {
+        id: lead.id,
+        state: lead.state,
+        attempt: lead.attempt,
+        nextActionAt: lead.nextActionAt,
+      },
+      data: { nextActionAt: null },
+    });
+    return r.count === 1;
+  }
+
+  /** Update condicional ao estado atual. Retorna false se o estado já mudou. */
+  async updateIfState(
+    id: string,
+    states: OnboardingState[],
+    data: Prisma.OnboardingLeadUpdateManyMutationInput,
+  ): Promise<boolean> {
+    const r = await this.prisma.onboardingLead.updateMany({
+      where: { id, state: { in: states } },
+      data,
+    });
+    return r.count === 1;
+  }
+
   update(id: string, data: Prisma.OnboardingLeadUpdateInput): Promise<OnboardingLead> {
     return this.prisma.onboardingLead.update({ where: { id }, data });
   }

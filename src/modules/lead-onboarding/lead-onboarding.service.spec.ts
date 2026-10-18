@@ -45,6 +45,11 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     countFirstAttemptsSince: jest.fn().mockResolvedValue(opts.firstAttemptsToday ?? 0),
     update: jest.fn(async (_id, data) => ({ ...lead, ...data })),
     findByConversation: jest.fn(),
+    claim: jest.fn().mockResolvedValue(true),
+    updateIfState: jest.fn(async (id: string, _states: string[], data: any) => {
+      await repo.update(id, data);
+      return true;
+    }),
   };
   const hoppe = {
     getTask: jest.fn().mockResolvedValue(opts.task === undefined ? task() : opts.task),
@@ -61,6 +66,7 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     setPromptContext: jest.fn().mockResolvedValue(undefined),
     pauseConversation: jest.fn().mockResolvedValue(undefined),
     hasRecentSystemOutbound: jest.fn().mockResolvedValue(false),
+    conversationGuard: jest.fn().mockResolvedValue(null),
   };
   const config = {
     enabled: true,
@@ -195,5 +201,43 @@ describe('LeadOnboardingService.tick', () => {
     const data = repo.update.mock.calls.at(-1)![1];
     expect(data.resumeSentAt).toBeInstanceOf(Date);
     expect(data.nextActionAt).toBeNull();
+  });
+});
+
+describe('LeadOnboardingService.tick — correções da revisão', () => {
+  it('I1: lead que mudou de estado no meio do lote não é reenviado (claim atômico)', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara' } });
+    const { service, repo, messenger } = build({ lead });
+    (repo as any).claim = jest.fn().mockResolvedValue(false);
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send).not.toHaveBeenCalled();
+  });
+
+  it('I1: estado mudou durante o envio → não sobrescreve com CONTACTED', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara' } });
+    const { service, repo } = build({ lead });
+    (repo as any).updateIfState = jest.fn().mockResolvedValue(false);
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect((repo as any).updateIfState).toHaveBeenCalledWith('lead1', ['PENDING', 'CONTACTED'], expect.objectContaining({ state: 'CONTACTED' }));
+    const states = repo.update.mock.calls.map((c: any[]) => c[1].state).filter(Boolean);
+    expect(states).not.toContain('CONTACTED');
+  });
+
+  it('I2: lead respondeu e o hook falhou → tentativa 2 não sai, vira REPLIED', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', lastAttemptAt: brt('2026-10-18T09:00:00'), snapshot: { firstName: 'Mayara' } });
+    const { service, repo, messenger } = build({ lead });
+    messenger.conversationGuard = jest.fn().mockResolvedValue('replied');
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send).not.toHaveBeenCalled();
+    expect(repo.update.mock.calls.at(-1)![1].state).toBe('REPLIED');
+  });
+
+  it('I2: IA desligada na conversa pela UI → PAUSED sem enviar', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 2, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara' } });
+    const { service, repo, messenger } = build({ lead });
+    messenger.conversationGuard = jest.fn().mockResolvedValue('human');
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send).not.toHaveBeenCalled();
+    expect(repo.update.mock.calls.at(-1)![1].state).toBe('PAUSED');
   });
 });

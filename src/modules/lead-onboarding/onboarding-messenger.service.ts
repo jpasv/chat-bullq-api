@@ -107,6 +107,34 @@ export class OnboardingMessengerService {
     });
   }
 
+  /**
+   * Checagem antes das tentativas 2/3 e da retomada, sem depender só do hook
+   * de inbound (fire-and-forget): 'replied' se o lead escreveu depois de
+   * `since`; 'human' se a IA foi desligada, a conversa foi atribuída a alguém
+   * ou o agente ativo mudou; null se pode enviar.
+   */
+  async conversationGuard(
+    conversationId: string,
+    since: Date | null,
+  ): Promise<'replied' | 'human' | null> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { aiEnabled: true, assignedToId: true, activeAgentId: true },
+    });
+    if (!conv) return 'human';
+    if (conv.aiEnabled === false || conv.assignedToId || conv.activeAgentId !== this.config.agentId) {
+      return 'human';
+    }
+    if (since) {
+      const inbound = await this.prisma.message.findFirst({
+        where: { conversationId, direction: MessageDirection.INBOUND, createdAt: { gt: since } },
+        select: { id: true },
+      });
+      if (inbound) return 'replied';
+    }
+    return null;
+  }
+
   /** Humano assumiu: desliga a IA só nesta conversa. */
   async pauseConversation(conversationId: string): Promise<void> {
     await this.prisma.conversation.update({
@@ -193,16 +221,22 @@ export class OnboardingMessengerService {
     channelId: string,
     contactId: string,
   ): Promise<string> {
+    // SQL cru de propósito: o filtro JSON do Prisma (`NOT {metadata: {path,
+    // equals}}`) descarta linhas SEM `source` (NULL), que são justamente as
+    // mensagens normais — a guarda nunca disparava.
     const since = new Date(Date.now() - HUMAN_LOOKBACK_DAYS * 24 * 3600 * 1000);
-    const recentHistory = await this.prisma.message.findFirst({
-      where: {
-        createdAt: { gte: since },
-        conversation: { channelId, contactId },
-        NOT: { metadata: { path: ['source'], equals: ATTEMPT_MESSAGE_SOURCE } },
-      },
-      select: { conversationId: true },
-    });
-    if (recentHistory) throw new HumanConversationError(recentHistory.conversationId);
+    const rows = await this.prisma.$queryRaw<Array<{ conversation_id: string }>>`
+      SELECT m.conversation_id
+      FROM messages m
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE c.channel_id = ${channelId}
+        AND c.contact_id = ${contactId}
+        AND m.created_at >= ${since}
+        AND m.type::text <> 'SYSTEM'
+        AND (m.metadata->>'source') IS DISTINCT FROM ${ATTEMPT_MESSAGE_SOURCE}
+      LIMIT 1
+    `;
+    if (rows.length > 0) throw new HumanConversationError(rows[0].conversation_id);
 
     const agentId = this.requireConfig('agentId');
     const open = await this.prisma.conversation.findFirst({

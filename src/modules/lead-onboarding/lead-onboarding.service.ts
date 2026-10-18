@@ -69,6 +69,8 @@ export class LeadOnboardingService {
     const due = await this.repo.findDue(['PENDING', 'CONTACTED', 'REPLIED'], now);
     let processed = 0;
     for (const lead of due) {
+      // Claim atômico: outro tick/réplica já pegou, ou o estado mudou desde a leitura.
+      if (!(await this.repo.claim(lead))) continue;
       try {
         await this.processDue(lead, now);
         processed++;
@@ -153,7 +155,8 @@ export class LeadOnboardingService {
   private async sendAttempt(lead: OnboardingLead, attempt: 2 | 3, now: Date): Promise<void> {
     if (await this.deferIfNeeded(lead, now, false)) return;
     const snapshot = this.snapshotOf(lead);
-    if (!lead.phone) return this.skip(lead, 'lead sem telefone resolvido');
+    if (!lead.phone || !lead.conversationId) return this.skip(lead, 'lead sem telefone/conversa resolvidos');
+    if (await this.blockedByConversation(lead, now)) return;
     await this.messenger.send({
       target: { digits: lead.phone, jid: `${lead.phone}@s.whatsapp.net` },
       name: snapshot.name,
@@ -178,14 +181,21 @@ export class LeadOnboardingService {
         : adjustToSendWindow(new Date(now.getTime() + hours * HOUR), start, end);
     const dates = [...this.dates(lead), now.toISOString()];
 
-    await this.repo.update(lead.id, {
-      ...extra,
+    // Condicional: se o lead respondeu/deu opt-out/foi pausado durante o
+    // envio, não volta pra CONTACTED — só registra a tentativa que saiu.
+    const ok = await this.repo.updateIfState(lead.id, ['PENDING', 'CONTACTED'], {
+      ...(extra as Prisma.OnboardingLeadUpdateManyMutationInput),
+      ...(extra.conversationId ? { conversationId: extra.conversationId as string } : {}),
+      ...(extra.contactId ? { contactId: extra.contactId as string } : {}),
       state: 'CONTACTED',
       attempt,
       lastAttemptAt: now,
       attemptDates: dates,
       nextActionAt,
     });
+    if (!ok) {
+      await this.repo.update(lead.id, { ...extra, attempt, lastAttemptAt: now, attemptDates: dates });
+    }
     await this.safe(() => this.hoppe.addTag(lead.hoppeTaskId, ATTEMPT_TAGS[attempt]));
     if (attempt === 1) {
       await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.ATIVO));
@@ -217,6 +227,7 @@ export class LeadOnboardingService {
       return;
     }
     if (await this.deferIfNeeded(lead, now, false)) return;
+    if (await this.blockedByConversation(lead, now)) return;
     const text = renderResume(lead.pendingReason, this.snapshotOf(lead), lead.pendingDetail);
     if (!text) {
       await this.repo.update(lead.id, { nextActionAt: null });
@@ -233,6 +244,27 @@ export class LeadOnboardingService {
     await this.safe(() =>
       this.hoppe.addComment(lead.hoppeTaskId, `Retomada enviada em ${fmt(now)} (pendência: ${lead.pendingReason}).`),
     );
+  }
+
+  /**
+   * Guarda independente do hook de inbound: o lead já respondeu (hook falhou)
+   * ou um humano assumiu/desligou a IA. Retorna true quando bloqueou.
+   */
+  private async blockedByConversation(lead: OnboardingLead, now: Date): Promise<boolean> {
+    if (!lead.conversationId) return false;
+    const guard = await this.messenger.conversationGuard(lead.conversationId, lead.lastAttemptAt ?? null);
+    if (guard === 'replied') {
+      await this.repo.update(lead.id, { state: 'REPLIED', repliedAt: lead.repliedAt ?? now, nextActionAt: null });
+      await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.EM_QUALIFICACAO));
+      await this.safe(() => this.hoppe.addComment(lead.hoppeTaskId, `Lead respondeu (detectado em ${fmt(now)}). Status movido para em qualificação.`));
+      return true;
+    }
+    if (guard === 'human') {
+      await this.repo.update(lead.id, { state: 'PAUSED', nextActionAt: null });
+      await this.safe(() => this.hoppe.addComment(lead.hoppeTaskId, `Conversa assumida por humano ou IA desligada; contatos automáticos pausados em ${fmt(now)}.`));
+      return true;
+    }
+    return false;
   }
 
   /**
