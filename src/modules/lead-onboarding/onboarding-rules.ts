@@ -98,7 +98,7 @@ export function firstName(name: string | null): string {
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
-const OPENING = 'Sou o assistente virtual do Tiago, aqui da Bravy.';
+const OPENING = 'Aqui é da Bravy.';
 
 /** Copy literal das 3 tentativas (spec, seções 1 e 8). */
 export function renderAttempt(attempt: 1 | 2 | 3, lead: LeadSnapshot): string {
