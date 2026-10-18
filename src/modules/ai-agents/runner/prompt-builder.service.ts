@@ -66,6 +66,10 @@ Atualizado em <%= it.operationalContextLabel %>. Use isso pra orientar suas pró
 - Cliente: <%= it.contact.name || 'Sem nome cadastrado' %><% if (it.contact.phone) { %>
 - Telefone: <%= it.contact.phone %><% } %><% if (it.contact.email) { %>
 - E-mail: <%= it.contact.email %><% } %>
+<% if (it.conversation && it.conversation.metadata && typeof it.conversation.metadata.promptContext === 'string' && it.conversation.metadata.promptContext.trim()) { %>
+═══ Contexto do lead ═══
+<%= it.conversation.metadata.promptContext %>
+<% } %>
 <% if (it.memorySummary) { %>
 ═══ Memória de interações anteriores ═══
 <%= it.memorySummary %>

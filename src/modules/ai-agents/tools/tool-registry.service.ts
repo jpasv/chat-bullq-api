@@ -18,6 +18,10 @@ import { ListarReunioesClienteTool } from './builtin/listar-reunioes-cliente.too
 import { LerTranscricaoReuniaoTool } from './builtin/ler-transcricao-reuniao.tool';
 import { AgendarReuniaoTool } from './builtin/agendar-reuniao.tool';
 import { MoveRecoveryCardTool } from './builtin/move-recovery-card.tool';
+import { ConsultarHorariosDiagnosticoTool } from './builtin/consultar-horarios-diagnostico.tool';
+import { AgendarDiagnosticoTool } from './builtin/agendar-diagnostico.tool';
+import { RegistrarQualificacaoTool } from './builtin/registrar-qualificacao.tool';
+import { RegistrarOptOutTool } from './builtin/registrar-opt-out.tool';
 
 /**
  * Registry of BUILT-IN skills (named "tools" in the code for legacy reasons).
@@ -55,6 +59,10 @@ export class ToolRegistry {
     lerTranscricaoReuniao: LerTranscricaoReuniaoTool,
     agendarReuniao: AgendarReuniaoTool,
     moveRecoveryCard: MoveRecoveryCardTool,
+    consultarHorariosDiagnostico: ConsultarHorariosDiagnosticoTool,
+    agendarDiagnostico: AgendarDiagnosticoTool,
+    registrarQualificacao: RegistrarQualificacaoTool,
+    registrarOptOut: RegistrarOptOutTool,
   ) {
     this.register(reply, ['ORCHESTRATOR', 'WORKER']);
     this.register(transfer, ['ORCHESTRATOR', 'WORKER']);
@@ -96,6 +104,16 @@ export class ToolRegistry {
       .filter(Boolean);
     if (recoveryAgents.length > 0) {
       this.register(moveRecoveryCard, ['WORKER'], recoveryAgents);
+    }
+
+    // Onboarding pós-venda (Leads onboarding do Hoppe): qualificação e
+    // agendamento do Diagnóstico de IA — só pro agente do env ONBOARDING_AGENT_ID.
+    const onboardingAgent = (config.get<string>('ONBOARDING_AGENT_ID') ?? '').trim();
+    if (onboardingAgent) {
+      this.register(consultarHorariosDiagnostico, ['WORKER'], [onboardingAgent]);
+      this.register(agendarDiagnostico, ['WORKER'], [onboardingAgent]);
+      this.register(registrarQualificacao, ['WORKER'], [onboardingAgent]);
+      this.register(registrarOptOut, ['WORKER'], [onboardingAgent]);
     }
 
     this.logger.log(
