@@ -11,6 +11,8 @@ import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators';
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
 import { LeadOnboardingRepository } from './lead-onboarding.repository';
+import { HoppeLeadsClient } from './hoppe-leads.client';
+import { TRIGGER_TAG } from './lead-onboarding.constants';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -48,6 +50,7 @@ export class HoppeWebhookController {
   constructor(
     private readonly config: LeadOnboardingConfigService,
     private readonly repo: LeadOnboardingRepository,
+    private readonly hoppe: HoppeLeadsClient,
   ) {}
 
   @Post(':secret')
@@ -74,6 +77,11 @@ export class HoppeWebhookController {
       );
       return { status: 'no_task' };
     }
+
+    // A automação dispara em qualquer tag adicionada na list (inclusive as de
+    // tentativa que o próprio fluxo coloca). Só a `abordar-ia` cria lead.
+    const task = await this.hoppe.getTask(taskId);
+    if (!task?.tags.includes(TRIGGER_TAG)) return { status: 'not_tagged' };
 
     const status = await this.repo.enqueueFromTag(orgId, taskId);
     this.logger.log(`Hoppe webhook: task=${taskId} → ${status}`);

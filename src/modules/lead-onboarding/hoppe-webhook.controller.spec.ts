@@ -19,11 +19,12 @@ function buildRepo(existing: Record<string, any> | null = null) {
   return { repo: new LeadOnboardingRepository(prisma as any), prisma, rows };
 }
 
-function build(existing: Record<string, any> | null = null) {
+function build(existing: Record<string, any> | null = null, tags: string[] = ['abordar-ia']) {
   const { repo, prisma, rows } = buildRepo(existing);
   const config = { webhookSecret: 's3cr3t', orgId: 'org1' };
-  const controller = new HoppeWebhookController(config as any, repo);
-  return { controller, prisma, rows };
+  const hoppe = { getTask: jest.fn().mockResolvedValue({ id: TASK, tags }) };
+  const controller = new HoppeWebhookController(config as any, repo, hoppe as any);
+  return { controller, prisma, rows, hoppe };
 }
 
 describe('extractTaskId', () => {
@@ -77,5 +78,11 @@ describe('HoppeWebhookController', () => {
       status: 'exists',
     });
     expect(rows.get(TASK).state).toBe('OPTED_OUT');
+  });
+
+  it('task sem a tag abordar-ia (outra tag adicionada) não vira lead', async () => {
+    const { controller, prisma } = build(null, ['1º mensagem']);
+    await expect(controller.handle('s3cr3t', { task: { id: TASK } })).resolves.toEqual({ status: 'not_tagged' });
+    expect(prisma.onboardingLead.create).not.toHaveBeenCalled();
   });
 });
