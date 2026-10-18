@@ -86,12 +86,12 @@ describe('renderAttempt', () => {
       lead({ progresso: 'Ainda não tive tempo de começar' }),
     );
     expect(msg).toBe(
-      'Oi, Mayara! Sou o assistente virtual do Tiago, aqui da Bravy. Você comentou no formulário que ainda não tinha começado com o 57 Agents Advocacia. Conseguiu olhar desde então?',
+      'Oi, Mayara! Aqui é da Bravy. Você comentou no formulário que ainda não tinha começado com o 57 Agents Advocacia. Conseguiu olhar desde então?',
     );
   });
   it('mensagem 1 sem progresso usa a abertura geral', () => {
     expect(renderAttempt(1, lead())).toBe(
-      'Oi, Mayara! Sou o assistente virtual do Tiago, aqui da Bravy. Você conseguiu começar a usar o 57 Agents Advocacia ou ficou alguma dúvida?',
+      'Oi, Mayara! Aqui é da Bravy. Você conseguiu começar a usar o 57 Agents Advocacia ou ficou alguma dúvida?',
     );
   });
   it('mensagens 2 e 3 são as do spec', () => {
