@@ -606,11 +606,14 @@ export class InboundMessageProcessor extends WorkerHost {
 
     // Onboarding pós-venda (WhatsApp pessoal do Tiago): espera 30-45s pra não
     // parecer robô. Demais conversas seguem o debounce padrão.
-    const delayMs =
-      conversation.activeAgentId &&
-      conversation.activeAgentId === process.env.ONBOARDING_AGENT_ID
-        ? onboardingReplyDelayMs()
-        : AGENT_DEBOUNCE_MS;
+    // Vale pra conversa inteira do onboarding, inclusive quando o suporte
+    // (Lívia) está atendendo — marcada pelo promptContext no metadata.
+    const md = (conversation.metadata ?? {}) as Record<string, unknown>;
+    const isOnboarding =
+      (!!conversation.activeAgentId &&
+        conversation.activeAgentId === process.env.ONBOARDING_AGENT_ID) ||
+      typeof md.promptContext === 'string';
+    const delayMs = isOnboarding ? onboardingReplyDelayMs() : AGENT_DEBOUNCE_MS;
     this.scheduleAgentRun(conversationId, triggerMessageId, delayMs);
   }
 

@@ -41,7 +41,8 @@ Como registrar um ajuste novo: acrescentar uma linha no fim da tabela, com a dat
 | 31 | 18/10/2026 | Tiago Teles | Objetivo sobre Claude Code, não só o produto comprado | Pergunta "qual o principal objetivo que você quer alcançar com o Claude Code?" | PR #25 |
 | 32 | 18/10/2026 | Tiago Teles | A IA responde rápido demais: esperar 30 a 45 segundos | Atraso aleatório de 30 a 45s nas conversas do onboarding | PR #26 |
 | 33 | 18/10/2026 | Tiago Teles | O lead mandou várias mensagens seguidas e a IA respondeu cada uma separada | O mesmo atraso do item 32 reinicia a cada mensagem nova, e a IA responde ao bloco inteiro | PR #26 |
-| 34 | 18/10/2026 | Tiago Teles | Documentar cada ajuste com data e quem pediu | Este arquivo | este PR |
+| 34 | 18/10/2026 | Tiago Teles | Documentar cada ajuste com data e quem pediu | Este arquivo | PR #27 |
+| 35 | 18/10/2026 | Tiago Teles | Toda demanda de suporte vai para a Lívia, que resolve e devolve para o agente continuar a qualificação | Tool `encaminharSuporte` (onboarding → Lívia) e o `handBackToOrchestrator` da Lívia devolve para o agente de onboarding; atraso de 30-45s vale também na vez da Lívia | este PR |
 
 ## Correções técnicas (sem pedido explícito)
 

@@ -26,6 +26,11 @@ export class LeadOnboardingConfigService {
     return this.config.get<string>('ONBOARDING_AGENT_ID') ?? null;
   }
 
+  /** Agente de suporte que resolve acesso/uso do produto (default Lívia). */
+  get supportAgentId(): string {
+    return this.config.get<string>('ONBOARDING_SUPPORT_AGENT_ID') ?? 'agent_livia_001';
+  }
+
   get webhookSecret(): string | null {
     return this.config.get<string>('HOPPE_WEBHOOK_SECRET') ?? null;
   }
