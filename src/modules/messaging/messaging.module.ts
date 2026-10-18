@@ -8,6 +8,7 @@ import { WatchdogModule } from '../routing/watchdog/watchdog.module';
 import { SegmentsModule } from '../segments/segments.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { SalesRecoveryModule } from '../sales-recovery/sales-recovery.module';
+import { LeadOnboardingModule } from '../lead-onboarding/lead-onboarding.module';
 import { SocialCommentsModule } from '../social-comments/social-comments.module';
 import { IdempotencyService } from './pipeline/idempotency.service';
 import { ContactResolverService } from './pipeline/contact-resolver.service';
@@ -46,6 +47,7 @@ import { ContactsRepository } from './contacts/contacts.repository';
     SegmentsModule,
     ProjectsModule,
     SalesRecoveryModule,
+    LeadOnboardingModule,
     forwardRef(() => SocialCommentsModule),
   ],
   controllers: [ConversationsController, MessagesController, ContactsController],

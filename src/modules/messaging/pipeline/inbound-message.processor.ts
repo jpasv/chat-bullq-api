@@ -16,6 +16,7 @@ import { TranscriptionService } from '../messages/transcription.service';
 import { OutboxService } from '../../automations/outbox/outbox.service';
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
 import { SalesRecoveryService } from '../../sales-recovery/sales-recovery.service';
+import { LeadOnboardingService } from '../../lead-onboarding/lead-onboarding.service';
 import { SocialCommentsIngestService, CommentJobData } from '../../social-comments/social-comments-ingest.service';
 import {
   AutomationTrigger,
@@ -99,6 +100,7 @@ export class InboundMessageProcessor extends WorkerHost {
     private readonly outbox: OutboxService,
     private readonly watchdog: WatchdogService,
     private readonly salesRecovery: SalesRecoveryService,
+    private readonly leadOnboarding: LeadOnboardingService,
     @Inject(forwardRef(() => SocialCommentsIngestService))
     private readonly socialCommentsIngest: SocialCommentsIngestService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
@@ -307,6 +309,23 @@ export class InboundMessageProcessor extends WorkerHost {
         `Inbound processed: msg=${savedMessage.id} conv=${conversationId} contact=${contactId} type=${message.type} echo=${isEcho}`,
       );
       if (webhookEventId) await this.webhookEvents.markProcessed(webhookEventId);
+
+      // Onboarding pós-venda: resposta do lead (→ em qualificação) ou eco de
+      // mensagem digitada pelo Tiago no celular (→ pausa a IA). No-op sem lead.
+      this.leadOnboarding
+        .onInbound(conversationId, {
+          isEcho,
+          isNew,
+          text:
+            typeof (message.content as any)?.text === 'string'
+              ? (message.content as any).text
+              : null,
+        })
+        .catch((err) =>
+          this.logger.warn(
+            `Onboarding onInbound failed for conv ${conversationId}: ${err?.message ?? err}`,
+          ),
+        );
 
       // Watchdog: cliente mandou mensagem nova → agenda timer pra detectar
       // se ninguém respondeu na janela. Echo (msg da gente que voltou via
