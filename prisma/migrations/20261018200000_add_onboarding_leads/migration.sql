@@ -9,6 +9,7 @@ CREATE TABLE "onboarding_leads" (
     "state" TEXT NOT NULL DEFAULT 'PENDING',
     "attempt" INTEGER NOT NULL DEFAULT 0,
     "next_action_at" TIMESTAMP(3),
+    "first_attempt_at" TIMESTAMP(3),
     "last_attempt_at" TIMESTAMP(3),
     "attempt_dates" JSONB NOT NULL DEFAULT '[]',
     "replied_at" TIMESTAMP(3),
@@ -37,3 +38,6 @@ CREATE INDEX "idx_onboarding_state_summary" ON "onboarding_leads"("state", "summ
 
 -- CreateIndex
 CREATE INDEX "idx_onboarding_conversation" ON "onboarding_leads"("conversation_id");
+
+-- CreateIndex
+CREATE INDEX "idx_onboarding_first_attempt" ON "onboarding_leads"("first_attempt_at");

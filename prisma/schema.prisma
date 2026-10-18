@@ -1784,6 +1784,7 @@ model OnboardingLead {
   state          String    @default("PENDING")
   attempt        Int       @default(0)
   nextActionAt   DateTime? @map("next_action_at")
+  firstAttemptAt DateTime? @map("first_attempt_at")
   lastAttemptAt  DateTime? @map("last_attempt_at")
   attemptDates   Json      @default("[]") @map("attempt_dates")
   repliedAt      DateTime? @map("replied_at")
@@ -1801,5 +1802,6 @@ model OnboardingLead {
   @@index([state, nextActionAt], name: "idx_onboarding_state_next")
   @@index([state, summaryDueAt], name: "idx_onboarding_state_summary")
   @@index([conversationId], name: "idx_onboarding_conversation")
+  @@index([firstAttemptAt], name: "idx_onboarding_first_attempt")
   @@map("onboarding_leads")
 }
