@@ -252,3 +252,11 @@ export function buildPromptContext(lead: LeadSnapshot, extra: { attempt: number;
   ];
   return lines.join('\n');
 }
+
+/**
+ * Espera antes da IA responder no onboarding (30-45s, aleatório). Resposta
+ * instantânea no WhatsApp pessoal do Tiago denuncia robô (pedido de 18/10).
+ */
+export function onboardingReplyDelayMs(random: () => number = Math.random): number {
+  return Math.round(30_000 + random() * 15_000);
+}
