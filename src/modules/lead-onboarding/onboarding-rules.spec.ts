@@ -1,4 +1,5 @@
 import {
+  isAcknowledgement,
   adjustToSendWindow,
   onboardingReplyDelayMs,
   stripTrailingPeriod,
@@ -111,6 +112,19 @@ describe('renderAttempt', () => {
     expect(msgs).toEqual(['Oi, tudo bem? Aqui é da Bravy', 'vi que você começou com a gente, conseguiu mexer?']);
     for (const m of [...msgs, ...renderAttempt(2, lead()), ...renderAttempt(3, lead())]) {
       expect(m).not.toMatch(/[{}]|\.$/);
+    }
+  });
+});
+
+describe('isAcknowledgement', () => {
+  it('reconhece fechamentos curtos', () => {
+    for (const t of ['Ok', 'ok!', 'Blz', 'valeu', 'Obrigado!', 'ok, obrigado', 'tá bom', 'pode deixar', '👍', 'Beleza.']) {
+      expect(isAcknowledgement(t)).toBe(true);
+    }
+  });
+  it('não confunde resposta de verdade', () => {
+    for (const t of ['Ainda não tentei. Só amanhã', 'sim', 'ok mas não achei a aula', 'quinta às 10h', '', null]) {
+      expect(isAcknowledgement(t as any)).toBe(false);
     }
   });
 });
