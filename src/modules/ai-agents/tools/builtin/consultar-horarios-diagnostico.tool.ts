@@ -35,6 +35,9 @@ export class ConsultarHorariosDiagnosticoTool implements AiTool {
   async execute(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
     const lead = await this.onboarding.findByConversation(ctx.conversationId);
     if (!lead) return { output: { ok: false, error: 'conversa_sem_lead' } };
+    if (!this.onboarding.isQualified(lead)) {
+      return { output: { ok: false, error: 'nao_qualificado', hint: 'Qualifique antes (faturamento confirmado, decisor) e chame registrarQualificacao = qualificado; só então ofereça horário.' } };
+    }
     const dias = Number(input.dias) > 0 ? Number(input.dias) : 4;
     const aPartirDe =
       typeof input.aPartirDe === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.aPartirDe)

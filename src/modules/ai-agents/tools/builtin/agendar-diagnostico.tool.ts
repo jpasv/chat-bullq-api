@@ -21,7 +21,7 @@ export class AgendarDiagnosticoTool implements AiTool {
 
   readonly name = 'agendarDiagnostico';
   readonly description =
-    'Agenda o Diagnóstico de IA REAL (1h, videochamada com o Pedro) e envia o convite por e-mail. SÓ CHAME depois que o cliente confirmou POR ESCRITO data, horário e participantes, e que todos os sócios/decisores vão participar. Use um inicioIso devolvido por consultarHorariosDiagnostico. Se voltar horario_ocupado, consulte de novo e ofereça outras opções. Nunca diga que agendou antes de receber ok=true.';
+    'Agenda o Diagnóstico de IA REAL (1h, videochamada com o Pedro) e envia o convite por e-mail. Exige registrarQualificacao = qualificado antes. SÓ CHAME depois que o cliente confirmou POR ESCRITO data, horário e participantes, e que todos os sócios/decisores vão participar. Use um inicioIso devolvido por consultarHorariosDiagnostico. Se voltar horario_ocupado, consulte de novo e ofereça outras opções. Nunca diga que agendou antes de receber ok=true.';
   readonly parameters = {
     type: 'object',
     additionalProperties: false,
@@ -59,6 +59,10 @@ export class AgendarDiagnosticoTool implements AiTool {
     if (!lead) return { output: { ok: false, error: 'conversa_sem_lead' } };
     if (lead.meetingEventId || lead.state === 'SCHEDULED') {
       return { output: { ok: false, error: 'ja_agendado', hint: 'Já existe diagnóstico marcado. Para remarcar, transfira pro humano.' } };
+    }
+
+    if (!this.onboarding.isQualified(lead)) {
+      return { output: { ok: false, error: 'nao_qualificado', hint: 'Termine a qualificação (faturamento confirmado, decisor) e chame registrarQualificacao = qualificado antes de agendar.' } };
     }
 
     const inicioIso = String(input.inicioIso ?? '');

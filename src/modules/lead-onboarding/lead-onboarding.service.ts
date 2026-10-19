@@ -458,6 +458,7 @@ export class LeadOnboardingService {
     if (input.resultado === 'aguardando_socios') {
       const resumeAt = new Date(now.getTime() + 24 * HOUR);
       await this.repo.update(lead.id, {
+        snapshot: this.withQualification(lead, input, now),
         pendingReason: 'socios',
         pendingDetail: input.socios?.[0] ?? null,
         resumeSentAt: null,
@@ -471,7 +472,11 @@ export class LeadOnboardingService {
     }
 
     const followupAt = this.followupAt(now);
-    await this.repo.update(lead.id, { pendingReason: null, nextActionAt: followupAt });
+    await this.repo.update(lead.id, {
+      pendingReason: null,
+      nextActionAt: followupAt,
+      snapshot: this.withQualification(lead, input, now),
+    });
     await this.syncDates(lead, now, followupAt);
     await this.safe(() =>
       this.hoppe.addComment(
@@ -530,7 +535,26 @@ export class LeadOnboardingService {
     );
   }
 
+  /** Qualificação liberada pra agendar? (registrada como qualificado/aguardando_socios com faturamento) */
+  isQualified(lead: OnboardingLead): boolean {
+    const q = (this.snapshotOf(lead) as LeadSnapshot & { qualificacao?: { resultado?: string } }).qualificacao;
+    return q?.resultado === 'qualificado' || q?.resultado === 'aguardando_socios';
+  }
+
   // ─── helpers ───────────────────────────────────────────────
+
+  /** Snapshot com o resultado da qualificação, que libera o agendarDiagnostico. */
+  private withQualification(lead: OnboardingLead, input: QualificationInput, now: Date): Prisma.InputJsonValue {
+    return {
+      ...((lead.snapshot ?? {}) as Record<string, unknown>),
+      qualificacao: {
+        resultado: input.resultado,
+        faturamento: input.faturamentoConfirmado ?? null,
+        nivel: input.nivel ?? null,
+        em: now.toISOString(),
+      },
+    } as Prisma.InputJsonValue;
+  }
 
   private snapshotOf(lead: OnboardingLead): LeadSnapshot {
     return (lead.snapshot ?? {}) as unknown as LeadSnapshot;

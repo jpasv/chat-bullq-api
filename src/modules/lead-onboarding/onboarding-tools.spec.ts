@@ -8,6 +8,7 @@ import { HOPPE_STATUS } from './lead-onboarding.constants';
 
 const ctx = { conversationId: 'conv1', organizationId: 'org1', contactId: 'ct1', channelId: 'ch1', agentId: 'ag1', runId: 'r1' };
 const TASK = 'c132c764-f2fd-4f8a-bc12-39af873100d8';
+const QUALIFICADO = { qualificacao: { resultado: 'qualificado', faturamento: 'Acima de R$ 1 milhão' } };
 const lead = (snapshot: Record<string, any> = {}) => ({
   id: 'l1',
   hoppeTaskId: TASK,
@@ -31,7 +32,7 @@ describe('tools do onboarding', () => {
   });
 
   it('consultarHorarios devolve os slots da agenda', async () => {
-    const { svc } = realService(lead());
+    const { svc } = realService(lead(QUALIFICADO));
     const calendar = { freeSlots: jest.fn().mockResolvedValue([{ startIso: 'a', label: 'seg, 19/10 às 9h' }]) };
     const tool = new ConsultarHorariosDiagnosticoTool(svc, calendar as any);
     const out: any = (await tool.execute({ aPartirDe: '2026-10-26' }, ctx)).output;
@@ -41,7 +42,7 @@ describe('tools do onboarding', () => {
   });
 
   it('agendar com horário ocupado → horario_ocupado, sem marcar reunião', async () => {
-    const { svc, hoppe } = realService(lead());
+    const { svc, hoppe } = realService(lead(QUALIFICADO));
     const calendar = { create: jest.fn().mockRejectedValue(new SlotTakenError('x')) };
     const config = { closerEmail: 'produtos@asv.digital' };
     const tool = new AgendarDiagnosticoTool(svc, calendar as any, config as any);
@@ -51,7 +52,7 @@ describe('tools do onboarding', () => {
   });
 
   it('agendar cria evento sem dados comerciais e marca reunião agendada', async () => {
-    const { svc, hoppe } = realService(lead());
+    const { svc, hoppe } = realService(lead(QUALIFICADO));
     const calendar = { create: jest.fn().mockResolvedValue({ eventId: 'ev1', meetLink: 'https://meet' }) };
     const config = { closerEmail: 'produtos@asv.digital' };
     const tool = new AgendarDiagnosticoTool(svc, calendar as any, config as any);
@@ -83,9 +84,44 @@ describe('tools do onboarding', () => {
   it('qualificado no Rio acima de 500k/ano sugere presencial no comentário', async () => {
     const { svc, hoppe } = realService(lead());
     const tool = new RegistrarQualificacaoTool(svc);
-    await tool.execute({ resultado: 'qualificado', motivo: 'decide sozinho, prioridade alta', decisor: true }, ctx);
+    await tool.execute({ resultado: 'qualificado', motivo: 'decide sozinho, prioridade alta', decisor: true, faturamentoConfirmado: 'Acima de R$ 1 milhão' }, ctx);
     expect(hoppe.setStatus).not.toHaveBeenCalled();
     expect(hoppe.addComment.mock.calls[0][1]).toContain('presencial');
+  });
+
+  it('qualificado sem faturamento confirmado é recusado', async () => {
+    const { svc, hoppe } = realService(lead());
+    const tool = new RegistrarQualificacaoTool(svc);
+    const r: any = (await tool.execute({ resultado: 'qualificado', motivo: 'decide sozinho', decisor: true }, ctx)).output;
+    expect(r).toMatchObject({ ok: false, error: 'falta_faturamento' });
+    expect(hoppe.addComment).not.toHaveBeenCalled();
+  });
+
+  it('qualificado com faturamento abaixo do corte é recusado', async () => {
+    const { svc } = realService(lead());
+    const tool = new RegistrarQualificacaoTool(svc);
+    const r: any = (await tool.execute({ resultado: 'qualificado', motivo: 'x', faturamentoConfirmado: 'R$ 10.000 a R$ 50.000' }, ctx)).output;
+    expect(r).toMatchObject({ ok: false, error: 'faturamento_abaixo_do_corte' });
+  });
+
+  it('qualificado grava a qualificação no snapshot', async () => {
+    const { svc, repo } = realService(lead());
+    const tool = new RegistrarQualificacaoTool(svc);
+    await tool.execute({ resultado: 'qualificado', motivo: 'x', faturamentoConfirmado: 'R$ 50.000 a R$ 200.000', nivel: 'usa ChatGPT' }, ctx);
+    const data = repo.update.mock.calls.at(-1)[1];
+    expect(data.snapshot.qualificacao).toMatchObject({ resultado: 'qualificado', faturamento: 'R$ 50.000 a R$ 200.000', nivel: 'usa ChatGPT' });
+  });
+
+  it('sem qualificação não consulta horário nem agenda', async () => {
+    const { svc } = realService(lead());
+    const calendar = { freeSlots: jest.fn(), create: jest.fn() };
+    const consultar = new ConsultarHorariosDiagnosticoTool(svc, calendar as any);
+    expect((await consultar.execute({}, ctx)).output).toMatchObject({ ok: false, error: 'nao_qualificado' });
+    const agendar = new AgendarDiagnosticoTool(svc, calendar as any, { closerEmail: 'p@x' } as any);
+    const r = await agendar.execute({ inicioIso: '2099-10-19T13:00:00.000Z', emails: ['m@x.com'], participantes: ['M'] }, ctx);
+    expect(r.output).toMatchObject({ ok: false, error: 'nao_qualificado' });
+    expect(calendar.freeSlots).not.toHaveBeenCalled();
+    expect(calendar.create).not.toHaveBeenCalled();
   });
 
   it('resultado inválido é recusado', async () => {
