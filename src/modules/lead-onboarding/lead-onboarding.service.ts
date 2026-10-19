@@ -30,6 +30,7 @@ import {
 
 const HOUR = 3_600_000;
 const SUMMARY_DEBOUNCE_MS = 30 * 60 * 1000;
+const MEETING_MS = HOUR;
 
 export type QualificationResult = 'qualificado' | 'aguardando_socios' | 'desqualificado';
 
@@ -196,6 +197,7 @@ export class LeadOnboardingService {
     if (!ok) {
       await this.repo.update(lead.id, { ...extra, attempt, lastAttemptAt: now, attemptDates: dates });
     }
+    await this.syncDates(lead, now, ok ? nextActionAt : undefined);
     await this.safe(() => this.hoppe.addTag(lead.hoppeTaskId, ATTEMPT_TAGS[attempt]));
     if (attempt === 1) {
       await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.ATIVO));
@@ -210,6 +212,7 @@ export class LeadOnboardingService {
 
   private async inactivate(lead: OnboardingLead, now: Date): Promise<void> {
     await this.repo.update(lead.id, { state: 'INACTIVE', nextActionAt: null });
+    await this.syncDates(lead, now, null);
     await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.INATIVO));
     const datas = this.dates(lead).map((d) => fmt(new Date(d))).join(', ');
     await this.safe(() =>
@@ -241,6 +244,7 @@ export class LeadOnboardingService {
       conversationId: lead.conversationId,
     });
     await this.repo.update(lead.id, { resumeSentAt: now, nextActionAt: null });
+    await this.syncDates(lead, now, null);
     await this.safe(() =>
       this.hoppe.addComment(lead.hoppeTaskId, `Retomada enviada em ${fmt(now)} (pendência: ${lead.pendingReason}).`),
     );
@@ -255,6 +259,7 @@ export class LeadOnboardingService {
     const guard = await this.messenger.conversationGuard(lead.conversationId, lead.lastAttemptAt ?? null);
     if (guard === 'replied') {
       await this.repo.update(lead.id, { state: 'REPLIED', repliedAt: lead.repliedAt ?? now, nextActionAt: null });
+      await this.syncDates(lead, now, null);
       await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.EM_QUALIFICACAO));
       await this.safe(() => this.hoppe.addComment(lead.hoppeTaskId, `Lead respondeu (detectado em ${fmt(now)}). Status movido para em qualificação.`));
       return true;
@@ -266,6 +271,7 @@ export class LeadOnboardingService {
     }
     if (guard === 'human') {
       await this.repo.update(lead.id, { state: 'PAUSED', nextActionAt: null });
+      await this.syncDates(lead, now, null);
       await this.safe(() => this.hoppe.addComment(lead.hoppeTaskId, `Conversa assumida por humano ou IA desligada; contatos automáticos pausados em ${fmt(now)}.`));
       return true;
     }
@@ -281,6 +287,7 @@ export class LeadOnboardingService {
     const inWindow = adjustToSendWindow(now, start, end);
     if (inWindow.getTime() !== now.getTime()) {
       await this.repo.update(lead.id, { nextActionAt: inWindow });
+      await this.syncDates(lead, undefined, inWindow);
       return true;
     }
     if (isFirst) {
@@ -288,6 +295,7 @@ export class LeadOnboardingService {
       if (sent >= this.config.dailyCap) {
         const tomorrow = adjustToSendWindow(new Date(startOfBrtDay(now).getTime() + 24 * HOUR), start, end);
         await this.repo.update(lead.id, { nextActionAt: tomorrow });
+        await this.syncDates(lead, undefined, tomorrow);
         return true;
       }
     }
@@ -316,6 +324,7 @@ export class LeadOnboardingService {
       if (await this.messenger.hasRecentSystemOutbound(conversationId, msg.text)) return;
       await this.repo.update(lead.id, { state: 'PAUSED', nextActionAt: null });
       await this.messenger.pauseConversation(conversationId);
+      await this.syncDates(lead, now, null);
       await this.safe(() =>
         this.hoppe.addComment(lead.hoppeTaskId, `Tiago respondeu direto pelo WhatsApp em ${fmt(now)}; IA pausada nesta conversa.`),
       );
@@ -331,6 +340,7 @@ export class LeadOnboardingService {
         nextActionAt: null,
         summaryDueAt: new Date(now.getTime() + SUMMARY_DEBOUNCE_MS),
       });
+      await this.syncDates(lead, now, null);
       await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.EM_QUALIFICACAO));
       await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.ATIVO));
       await this.safe(() =>
@@ -351,6 +361,8 @@ export class LeadOnboardingService {
         nextActionAt: null,
         summaryDueAt: new Date(now.getTime() + SUMMARY_DEBOUNCE_MS),
       });
+      // Em reunião agendada as datas são as da reunião: não mexe.
+      if (lead.state !== 'SCHEDULED') await this.syncDates(lead, now, null);
     }
   }
 
@@ -380,6 +392,7 @@ export class LeadOnboardingService {
 
     if (input.resultado === 'desqualificado') {
       await this.repo.update(lead.id, { state: 'DISQUALIFIED', pendingReason: null, nextActionAt: null });
+      await this.syncDates(lead, now, null);
       await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.DESQUALIFICADO));
       await this.safe(() =>
         this.hoppe.addComment(lead.hoppeTaskId, `Desqualificado pelo assistente virtual em ${fmt(now)}. Motivo: ${input.motivo}. Dados: ${dados}.`),
@@ -388,12 +401,14 @@ export class LeadOnboardingService {
     }
 
     if (input.resultado === 'aguardando_socios') {
+      const resumeAt = new Date(now.getTime() + 24 * HOUR);
       await this.repo.update(lead.id, {
         pendingReason: 'socios',
         pendingDetail: input.socios?.[0] ?? null,
         resumeSentAt: null,
-        nextActionAt: new Date(now.getTime() + 24 * HOUR),
+        nextActionAt: resumeAt,
       });
+      await this.syncDates(lead, now, resumeAt);
       await this.safe(() =>
         this.hoppe.addComment(lead.hoppeTaskId, `Qualificado, aguardando confirmação dos sócios (${input.socios?.join(', ') || 'a definir'}). ${input.motivo}. Dados: ${dados}.`),
       );
@@ -401,6 +416,7 @@ export class LeadOnboardingService {
     }
 
     await this.repo.update(lead.id, { pendingReason: null, nextActionAt: null });
+    await this.syncDates(lead, now, null);
     await this.safe(() =>
       this.hoppe.addComment(
         lead.hoppeTaskId,
@@ -411,11 +427,14 @@ export class LeadOnboardingService {
 
   /** Lead combinou horário mas falta algo (e-mail, horário): agenda a retomada. */
   async markPending(lead: OnboardingLead, reason: 'horario' | 'email'): Promise<void> {
+    const now = new Date();
+    const resumeAt = new Date(now.getTime() + 24 * HOUR);
     await this.repo.update(lead.id, {
       pendingReason: reason,
       resumeSentAt: null,
-      nextActionAt: new Date(Date.now() + 24 * HOUR),
+      nextActionAt: resumeAt,
     });
+    await this.syncDates(lead, now, resumeAt);
   }
 
   async recordScheduled(
@@ -428,6 +447,9 @@ export class LeadOnboardingService {
       pendingReason: null,
       nextActionAt: null,
     });
+    // Reunião agendada: start = início da reunião, due = fim (1h).
+    const start = new Date(meeting.startIso);
+    await this.syncDates(lead, start, new Date(start.getTime() + MEETING_MS));
     await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.REUNIAO_AGENDADA));
     await this.safe(() =>
       this.hoppe.addComment(
@@ -438,6 +460,7 @@ export class LeadOnboardingService {
   }
 
   async noteSupport(lead: OnboardingLead, motivo: string): Promise<void> {
+    await this.syncDates(lead, new Date(), null);
     await this.safe(() =>
       this.hoppe.addComment(lead.hoppeTaskId, `Demanda de suporte encaminhada à Lívia em ${fmt(new Date())}: ${motivo}. Depois do suporte, a qualificação continua.`),
     );
@@ -445,6 +468,7 @@ export class LeadOnboardingService {
 
   async optOut(lead: OnboardingLead, motivo: string): Promise<void> {
     await this.repo.update(lead.id, { state: 'OPTED_OUT', nextActionAt: null, pendingReason: null });
+    await this.syncDates(lead, new Date(), null);
     await this.safe(() =>
       this.hoppe.addComment(lead.hoppeTaskId, `Lead pediu para não receber mais mensagens (${motivo}) em ${fmt(new Date())}. Contatos automáticos encerrados.`),
     );
@@ -458,6 +482,14 @@ export class LeadOnboardingService {
 
   private dates(lead: OnboardingLead): string[] {
     return Array.isArray(lead.attemptDates) ? (lead.attemptDates as string[]) : [];
+  }
+
+  /**
+   * start_date = última ação, due_date = próxima ação (null = nenhuma
+   * agendada). `undefined` mantém o valor atual no Hoppe.
+   */
+  private async syncDates(lead: OnboardingLead, start: Date | null | undefined, due: Date | null | undefined): Promise<void> {
+    await this.safe(() => this.hoppe.setDates(lead.hoppeTaskId, { start, due }));
   }
 
   private async safe(fn: () => Promise<unknown>): Promise<void> {

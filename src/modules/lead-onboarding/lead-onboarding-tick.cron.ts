@@ -3,6 +3,7 @@ import { Logger, OnModuleInit } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { LeadOnboardingService } from './lead-onboarding.service';
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
+import { OnboardingHumanAlertService } from './onboarding-human-alert.service';
 import { ONBOARDING_TICK_JOB, ONBOARDING_TICK_QUEUE } from './lead-onboarding.constants';
 
 /**
@@ -17,6 +18,7 @@ export class LeadOnboardingTickCron extends WorkerHost implements OnModuleInit {
   constructor(
     private readonly onboarding: LeadOnboardingService,
     private readonly config: LeadOnboardingConfigService,
+    private readonly alerts: OnboardingHumanAlertService,
     @InjectQueue(ONBOARDING_TICK_QUEUE) private readonly queue: Queue,
   ) {
     super();
@@ -43,6 +45,12 @@ export class LeadOnboardingTickCron extends WorkerHost implements OnModuleInit {
   async process(_job: Job): Promise<{ processed: number }> {
     const r = await this.onboarding.tick();
     if (r.processed > 0) this.logger.log(`Onboarding tick: processed=${r.processed}`);
+    try {
+      const alerted = await this.alerts.run();
+      if (alerted > 0) this.logger.log(`Onboarding tick: human_alerts=${alerted}`);
+    } catch (err) {
+      this.logger.warn(`Alertas humanos falharam: ${(err as Error).message}`);
+    }
     return r;
   }
 }
