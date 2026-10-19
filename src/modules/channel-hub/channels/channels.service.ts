@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { ChannelType, ChannelSyncMode, ChannelSyncStatus, OrgRole } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { ChannelsRepository } from './channels.repository';
@@ -16,6 +17,7 @@ import { WhatsAppOfficialHttpClient } from '../adapters/whatsapp-official/whatsa
 import { InstagramHttpClient } from '../adapters/instagram/instagram.http-client';
 import { GmailHttpClient } from '../adapters/gmail/gmail.http-client';
 import { ChannelSyncOrchestrator } from '../sync/channel-sync.orchestrator';
+import { isMaskedValue, restoreMaskedConfig } from './channel-secrets';
 import {
   ChannelAccessService,
   type ChannelAccess,
@@ -42,12 +44,21 @@ export class ChannelsService {
     dto: CreateChannelDto,
     creator?: { userOrganizationId: string; role: OrgRole },
   ) {
+    let config = dto.config;
+    let webhookSecret = dto.webhookSecret;
+    if (dto.type === ChannelType.MEMBERS) {
+      config = normalizeMembersConfig(dto.config);
+      // O members-backend assina os webhooks com esse segredo — gerado aqui
+      // quando não vier no payload; a resposta da criação devolve o valor.
+      webhookSecret = webhookSecret?.trim() || randomBytes(32).toString('hex');
+    }
+
     let channel = await this.repository.create({
       organizationId,
       type: dto.type,
       name: dto.name,
-      config: dto.config,
-      webhookSecret: dto.webhookSecret,
+      config,
+      webhookSecret,
       ...(dto.visibility ? { visibility: dto.visibility } : {}),
     });
 
@@ -201,7 +212,7 @@ export class ChannelsService {
     dto: UpdateChannelDto,
     callerUserOrganizationId?: string,
   ) {
-    await this.findOne(id, organizationId);
+    const current = await this.findOne(id, organizationId);
 
     // Visibility é tratado por caminho separado pra garantir auto-grant.
     const { visibility, ...rest } = dto;
@@ -214,10 +225,39 @@ export class ChannelsService {
       );
     }
 
+    // Placeholders mascarados ("********…") voltam do diálogo de edição
+    // quando o usuário não mexeu no campo → mantém o valor salvo.
+    if (rest.webhookSecret !== undefined && isMaskedValue(rest.webhookSecret)) {
+      delete rest.webhookSecret;
+    }
+    if (rest.config) {
+      rest.config = restoreMaskedConfig(rest.config, current.config);
+      if (current.type === ChannelType.MEMBERS) {
+        rest.config = normalizeMembersConfig({
+          ...((current.config as Record<string, unknown>) ?? {}),
+          ...rest.config,
+        });
+      }
+    }
+
     if (Object.keys(rest).length === 0) {
       return this.repository.findById(id);
     }
     return this.repository.update(id, rest);
+  }
+
+  /**
+   * Valores completos dos segredos do canal (webhookSecret + config sem
+   * máscara) — usado pelo diálogo de edição. Só OWNER/ADMIN (controller).
+   */
+  async getSecrets(id: string, organizationId: string) {
+    const channel = await this.findOne(id, organizationId);
+    return {
+      id: channel.id,
+      type: channel.type,
+      webhookSecret: channel.webhookSecret ?? null,
+      config: (channel.config as Record<string, unknown>) ?? {},
+    };
   }
 
   /**
@@ -381,6 +421,16 @@ export class ChannelsService {
           };
         }
 
+        case ChannelType.MEMBERS: {
+          // Não posta nada no members-backend — só valida o formato.
+          const cfg = normalizeMembersConfig(channel.config);
+          return {
+            success: true,
+            status: 'configured',
+            data: { callbackUrl: cfg.callbackUrl },
+          };
+        }
+
         default:
           return { success: false, error: 'Unsupported channel type' };
       }
@@ -391,4 +441,32 @@ export class ChannelsService {
       };
     }
   }
+}
+
+/**
+ * Config do canal MEMBERS: `{ callbackUrl, callbackSecret }`. Lança 400 se
+ * a URL não for http(s) válida ou o segredo estiver vazio.
+ */
+export function normalizeMembersConfig(raw: unknown): {
+  callbackUrl: string;
+  callbackSecret: string;
+} {
+  const cfg = (raw ?? {}) as Record<string, unknown>;
+  const callbackUrl =
+    typeof cfg.callbackUrl === 'string' ? cfg.callbackUrl.trim() : '';
+  const callbackSecret =
+    typeof cfg.callbackSecret === 'string' ? cfg.callbackSecret.trim() : '';
+  let url: URL;
+  try {
+    url = new URL(callbackUrl);
+  } catch {
+    throw new BadRequestException('callbackUrl inválida (use uma URL http/https completa).');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new BadRequestException('callbackUrl precisa ser http ou https.');
+  }
+  if (!callbackSecret) {
+    throw new BadRequestException('callbackSecret é obrigatório.');
+  }
+  return { callbackUrl, callbackSecret };
 }

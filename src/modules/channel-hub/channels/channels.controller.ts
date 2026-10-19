@@ -17,6 +17,7 @@ import { UpdateChannelDto } from './dto/update-channel.dto';
 import { JwtAuthGuard, OrgGuard, RolesGuard } from '../../../common/guards';
 import { CurrentChannelAccess, CurrentOrg, Roles } from '../../../common/decorators';
 import type { ChannelAccess } from '../../iam/channel-access/channel-access.service';
+import { maskChannel } from './channel-secrets';
 
 @ApiTags('Channels')
 @ApiBearerAuth()
@@ -34,6 +35,8 @@ export class ChannelsController {
     @CurrentOrg() org: { id: string; userOrganizationId: string; userRole: OrgRole },
     @Body() dto: CreateChannelDto,
   ) {
+    // Única resposta (fora de GET :id/secrets) com os segredos completos —
+    // a UI mostra webhookSecret/id pro operador configurar o provider.
     return this.service.create(org.id, dto, {
       userOrganizationId: org.userOrganizationId,
       role: org.userRole,
@@ -42,33 +45,44 @@ export class ChannelsController {
 
   @Get()
   @ApiOperation({ summary: 'List all channels for the organization' })
-  findAll(
+  async findAll(
     @CurrentOrg('id') orgId: string,
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
-    return this.service.findAll(orgId, access);
+    const channels = await this.service.findAll(orgId, access);
+    return channels.map((c) => maskChannel(c));
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get channel by ID' })
-  findOne(
+  async findOne(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
-    return this.service.findOne(id, orgId, access);
+    return maskChannel(await this.service.findOne(id, orgId, access));
+  }
+
+  @Get(':id/secrets')
+  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Reveal channel secrets (webhookSecret + unmasked config) for the edit dialog. OWNER/ADMIN only.',
+  })
+  getSecrets(@Param('id') id: string, @CurrentOrg('id') orgId: string) {
+    return this.service.getSecrets(id, orgId);
   }
 
   @Patch(':id')
   @Roles(OrgRole.OWNER, OrgRole.ADMIN)
   @ApiOperation({ summary: 'Update a channel' })
-  update(
+  async update(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @CurrentOrg('userOrganizationId') userOrganizationId: string,
     @Body() dto: UpdateChannelDto,
   ) {
-    return this.service.update(id, orgId, dto, userOrganizationId);
+    return maskChannel(await this.service.update(id, orgId, dto, userOrganizationId));
   }
 
   @Delete(':id')
@@ -77,12 +91,12 @@ export class ChannelsController {
     summary:
       'Soft-delete a channel. Requires ?confirmName=<exact channel name>.',
   })
-  remove(
+  async remove(
     @Param('id') id: string,
     @CurrentOrg('id') orgId: string,
     @Query('confirmName') confirmName?: string,
   ) {
-    return this.service.remove(id, orgId, confirmName);
+    return maskChannel(await this.service.remove(id, orgId, confirmName));
   }
 
   @Post(':id/sync')
