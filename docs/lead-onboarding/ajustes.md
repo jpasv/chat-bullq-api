@@ -44,8 +44,10 @@ Como registrar um ajuste novo: acrescentar uma linha no fim da tabela, com a dat
 | 34 | 18/10/2026 | Tiago Teles | Documentar cada ajuste com data e quem pediu | Este arquivo | PR #27 |
 | 35 | 18/10/2026 | Tiago Teles | Toda demanda de suporte vai para a Lívia, que resolve e devolve para o agente continuar a qualificação | Tool `encaminharSuporte` (onboarding → Lívia) e o `handBackToOrchestrator` da Lívia devolve para o agente de onboarding; atraso de 30-45s vale também na vez da Lívia | PR #28 |
 | 36 | 19/10/2026 | Tiago Teles | A tag `abordar-ia` deve entrar automaticamente | Automação do Hoppe `581146c0` (task criada na Leads onboarding → adiciona `abordar-ia` e chama o webhook). Todo formulário de onboarding novo é abordado sem ação manual | Hoppe |
-| 37 | 19/10/2026 | Tiago Teles | Postar no canal "Leads onboarding" do Hoppe sempre que precisar de um humano (pode usar a conta do Tiago) | Pedido de aprovação do agente (ex.: `transferToHuman`) numa conversa do onboarding vira post no canal e comentário na task, uma vez por pedido. Posta pela API interna com o login do Tiago | este PR |
-| 38 | 19/10/2026 | Tiago Teles | Start date = última ação e due date = próxima ação em todo lead; em reunião agendada, start/due = início/fim da reunião | Toda ação do fluxo atualiza as datas da task (tentativa, resposta, inativação, qualificação, pendência, suporte, opt-out, pausa). Sem próxima ação agendada, o due fica vazio | este PR |
+| 37 | 19/10/2026 | Tiago Teles | Postar no canal "Leads onboarding" do Hoppe sempre que precisar de um humano (pode usar a conta do Tiago) | Pedido de aprovação do agente (ex.: `transferToHuman`) numa conversa do onboarding vira post no canal e comentário na task, uma vez por pedido. Posta pela API interna com o login do Tiago | PR #30 |
+| 38 | 19/10/2026 | Tiago Teles | Start date = última ação e due date = próxima ação em todo lead; em reunião agendada, start/due = início/fim da reunião | Toda ação do fluxo atualiza as datas da task (tentativa, resposta, inativação, qualificação, pendência, suporte, opt-out, pausa). Sem próxima ação agendada, o due fica vazio | PR #30 |
+| 39 | 19/10/2026 | Tiago Teles | Lead em qualificação não pode ficar sem próxima ação | Até 2 retomadas automáticas, 24h depois do silêncio do lead, na janela 8h-20h; depois Atividade = Inativo com status mantido. Due date = próxima retomada. Não cutuca quando a conversa está com o time | PR #31 |
+| 40 | 19/10/2026 | Tiago Teles | Aguardando humano também ganha tag | Tag `aguardando-humano` quando o agente pede humano, com start/due na hora do pedido (task fica atrasada até alguém agir). Sai quando alguém responde pelo WhatsApp do Tiago | PR #31 |
 
 ## Correções técnicas (sem pedido explícito)
 
@@ -57,4 +59,5 @@ Problemas encontrados na revisão ou em produção e corrigidos durante a implan
 | 18/10/2026 | Revisão de código | Risco de mensagem em dobro e de tentativa para quem já respondeu | Claim atômico e checagem da conversa antes de cada tentativa | PR #20 |
 | 18/10/2026 | Teste em produção | A condição de tag da automação do Hoppe nunca dispara | Automação sem condição; o webhook filtra pela tag `abordar-ia` | PR #21 |
 | 18/10/2026 | Teste em produção | O Hoppe dá erro 500 ao adicionar tag com corpo vazio | Envio com corpo `{}` | PR #22 |
+| 19/10/2026 | Revisão do Tiago | A retomada de pendência (sócios, horário, e-mail) nunca disparava: a checagem bloqueava por causa da própria resposta do lead | Checagem própria da retomada | PR #31 |
 | 18/10/2026 | Teste em produção | O número do WhatsApp pode ter JID sem o 9º dígito | O JID real é resolvido no Zappfy (`/chat/check`) | PR #20 |
