@@ -16,6 +16,8 @@ import { TranscriptionService } from '../messages/transcription.service';
 import { OutboxService } from '../../automations/outbox/outbox.service';
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
 import { SalesRecoveryService } from '../../sales-recovery/sales-recovery.service';
+import { LeadOnboardingService } from '../../lead-onboarding/lead-onboarding.service';
+import { onboardingReplyDelayMs } from '../../lead-onboarding/onboarding-rules';
 import { SocialCommentsIngestService, CommentJobData } from '../../social-comments/social-comments-ingest.service';
 import {
   AutomationTrigger,
@@ -76,6 +78,8 @@ export class InboundMessageProcessor extends WorkerHost {
   /** In-memory debounce timers keyed by conversationId. Lost on restart by
    *  design — a restart means we'd rather reply once late than not at all. */
   private readonly pendingRuns = new Map<string, NodeJS.Timeout>();
+  /** Último atraso usado por conversa (o follow-up reaproveita, ex.: 30-45s do onboarding). */
+  private readonly runDelays = new Map<string, number>();
 
   /** Conversations with an agent run currently in flight. While set, new
    *  inbound messages just flag {@link followupNeeded} instead of starting
@@ -99,6 +103,7 @@ export class InboundMessageProcessor extends WorkerHost {
     private readonly outbox: OutboxService,
     private readonly watchdog: WatchdogService,
     private readonly salesRecovery: SalesRecoveryService,
+    private readonly leadOnboarding: LeadOnboardingService,
     @Inject(forwardRef(() => SocialCommentsIngestService))
     private readonly socialCommentsIngest: SocialCommentsIngestService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
@@ -307,6 +312,23 @@ export class InboundMessageProcessor extends WorkerHost {
         `Inbound processed: msg=${savedMessage.id} conv=${conversationId} contact=${contactId} type=${message.type} echo=${isEcho}`,
       );
       if (webhookEventId) await this.webhookEvents.markProcessed(webhookEventId);
+
+      // Onboarding pós-venda: resposta do lead (→ em qualificação) ou eco de
+      // mensagem digitada pelo Tiago no celular (→ pausa a IA). No-op sem lead.
+      this.leadOnboarding
+        .onInbound(conversationId, {
+          isEcho,
+          isNew,
+          text:
+            typeof (message.content as any)?.text === 'string'
+              ? (message.content as any).text
+              : null,
+        })
+        .catch((err) =>
+          this.logger.warn(
+            `Onboarding onInbound failed for conv ${conversationId}: ${err?.message ?? err}`,
+          ),
+        );
 
       // Watchdog: cliente mandou mensagem nova → agenda timer pra detectar
       // se ninguém respondeu na janela. Echo (msg da gente que voltou via
@@ -582,7 +604,17 @@ export class InboundMessageProcessor extends WorkerHost {
       return;
     }
 
-    this.scheduleAgentRun(conversationId, triggerMessageId);
+    // Onboarding pós-venda (WhatsApp pessoal do Tiago): espera 30-45s pra não
+    // parecer robô. Demais conversas seguem o debounce padrão.
+    // Vale pra conversa inteira do onboarding, inclusive quando o suporte
+    // (Lívia) está atendendo — marcada pelo promptContext no metadata.
+    const md = (conversation.metadata ?? {}) as Record<string, unknown>;
+    const isOnboarding =
+      (!!conversation.activeAgentId &&
+        conversation.activeAgentId === process.env.ONBOARDING_AGENT_ID) ||
+      typeof md.promptContext === 'string';
+    const delayMs = isOnboarding ? onboardingReplyDelayMs() : AGENT_DEBOUNCE_MS;
+    this.scheduleAgentRun(conversationId, triggerMessageId, delayMs);
   }
 
   /**
@@ -595,7 +627,11 @@ export class InboundMessageProcessor extends WorkerHost {
    * stack another one — we just flag that a follow-up is needed. The
    * in-flight run sees the flag when it finishes and re-schedules.
    */
-  private scheduleAgentRun(conversationId: string, triggerMessageId: string) {
+  private scheduleAgentRun(
+    conversationId: string,
+    triggerMessageId: string,
+    delayMs: number = AGENT_DEBOUNCE_MS,
+  ) {
     if (this.running.has(conversationId)) {
       this.followupNeeded.add(conversationId);
       this.logger.debug(
@@ -612,10 +648,11 @@ export class InboundMessageProcessor extends WorkerHost {
       );
     }
 
+    this.runDelays.set(conversationId, delayMs);
     const timer = setTimeout(() => {
       this.pendingRuns.delete(conversationId);
       this.fireAgentRun(conversationId);
-    }, AGENT_DEBOUNCE_MS);
+    }, delayMs);
 
     this.pendingRuns.set(conversationId, timer);
   }
@@ -691,7 +728,11 @@ export class InboundMessageProcessor extends WorkerHost {
         this.logger.debug(
           `Re-arming debounce for conv ${conversationId} (followup needed)`,
         );
-        this.scheduleAgentRun(conversationId, 'followup');
+        this.scheduleAgentRun(
+          conversationId,
+          'followup',
+          this.runDelays.get(conversationId) ?? AGENT_DEBOUNCE_MS,
+        );
       }
     }
   }

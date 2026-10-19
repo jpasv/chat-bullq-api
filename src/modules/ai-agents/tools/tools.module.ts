@@ -30,6 +30,12 @@ import { SqlToolExecutorService } from './sql-tool-executor.service';
 import { ConfigModule } from '@nestjs/config';
 import { ConfirmationsModule } from '../confirmations/confirmations.module';
 import { SalesRecoveryModule } from '../../sales-recovery/sales-recovery.module';
+import { LeadOnboardingModule } from '../../lead-onboarding/lead-onboarding.module';
+import { ConsultarHorariosDiagnosticoTool } from './builtin/consultar-horarios-diagnostico.tool';
+import { AgendarDiagnosticoTool } from './builtin/agendar-diagnostico.tool';
+import { RegistrarQualificacaoTool } from './builtin/registrar-qualificacao.tool';
+import { RegistrarOptOutTool } from './builtin/registrar-opt-out.tool';
+import { EncaminharSuporteTool } from './builtin/encaminhar-suporte.tool';
 
 @Module({
   imports: [
@@ -38,6 +44,7 @@ import { SalesRecoveryModule } from '../../sales-recovery/sales-recovery.module'
     RealtimeModule,
     ConfirmationsModule,
     SalesRecoveryModule,
+    LeadOnboardingModule,
     BullModule.registerQueue({ name: 'outbound-messages' }),
   ],
   providers: [
@@ -63,6 +70,11 @@ import { SalesRecoveryModule } from '../../sales-recovery/sales-recovery.module'
     LerTranscricaoReuniaoTool,
     AgendarReuniaoTool,
     MoveRecoveryCardTool,
+    ConsultarHorariosDiagnosticoTool,
+    AgendarDiagnosticoTool,
+    RegistrarQualificacaoTool,
+    RegistrarOptOutTool,
+    EncaminharSuporteTool,
     ToolRegistry,
     HttpToolExecutorService,
     SqlToolExecutorService,

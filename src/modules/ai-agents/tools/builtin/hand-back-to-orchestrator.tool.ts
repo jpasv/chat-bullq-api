@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../database/prisma.service';
 import { RealtimeGateway } from '../../../realtime/realtime.gateway';
 import { AiTool, ToolContext, ToolResult } from '../tool.types';
+import { OnboardingMessengerService } from '../../../lead-onboarding/onboarding-messenger.service';
 
 /**
  * WORKER-only. Returns the conversation to the orchestrator — typically when
@@ -34,6 +35,7 @@ export class HandBackToOrchestratorTool implements AiTool {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
+    private readonly onboardingMessenger: OnboardingMessengerService,
   ) {}
 
   async execute(
@@ -41,6 +43,25 @@ export class HandBackToOrchestratorTool implements AiTool {
     ctx: ToolContext,
   ): Promise<ToolResult> {
     const reason = String(input.reason ?? '').trim();
+
+    // Conversa encaminhada pelo onboarding pós-venda (suporte → Lívia): volta
+    // pro agente de onboarding continuar a qualificação, não pro orquestrador.
+    const returnedTo = await this.onboardingMessenger.returnFromSupport(ctx.conversationId);
+    if (returnedTo) {
+      await this.prisma.conversationAuditLog.create({
+        data: {
+          conversationId: ctx.conversationId,
+          actorId: null,
+          action: 'AI_HANDED_BACK',
+          metadata: { fromAgentId: ctx.agentId, toAgentId: returnedTo, reason, runId: ctx.runId },
+        },
+      });
+      this.logger.log(`Suporte ${ctx.agentId} devolveu conv ${ctx.conversationId} pro onboarding (${returnedTo}): ${reason}`);
+      return {
+        output: { ok: true, returnedTo, message: 'Conversa devolvida ao agente de onboarding, que continua no próximo turno.' },
+        finalAction: 'HANDED_BACK',
+      };
+    }
 
     await this.prisma.$transaction([
       this.prisma.conversation.update({

@@ -1769,3 +1769,42 @@ model AutomationRun {
   @@index([status, startedAt(sort: Desc)], name: "idx_run_status_time")
   @@map("automation_runs")
 }
+
+// ─── Onboarding pós-venda (Leads onboarding do Hoppe) ─────────────
+//
+// Estado local de cada lead abordado pelo assistente virtual do Tiago.
+// A verdade de negócio (status, Atividade, comentários) mora no Hoppe;
+// aqui fica só o necessário pra cadência, idempotência e achar o lead
+// pela conversa. `state` é string (não enum) pra evoluir sem migration.
+model OnboardingLead {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  hoppeTaskId    String    @unique @map("hoppe_task_id")
+  contactId      String?   @map("contact_id")
+  conversationId String?   @map("conversation_id")
+  phone          String?
+  // PENDING | CONTACTED | REPLIED | INACTIVE | SCHEDULED | DISQUALIFIED | OPTED_OUT | PAUSED | SKIPPED
+  state          String    @default("PENDING")
+  attempt        Int       @default(0)
+  nextActionAt   DateTime? @map("next_action_at")
+  firstAttemptAt DateTime? @map("first_attempt_at")
+  lastAttemptAt  DateTime? @map("last_attempt_at")
+  attemptDates   Json      @default("[]") @map("attempt_dates")
+  repliedAt      DateTime? @map("replied_at")
+  lastInboundAt  DateTime? @map("last_inbound_at")
+  summaryDueAt   DateTime? @map("summary_due_at")
+  lastSummaryAt  DateTime? @map("last_summary_at")
+  pendingReason  String?   @map("pending_reason")
+  pendingDetail  String?   @map("pending_detail")
+  resumeSentAt   DateTime? @map("resume_sent_at")
+  meetingEventId String?   @map("meeting_event_id")
+  snapshot       Json      @default("{}")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([state, nextActionAt], name: "idx_onboarding_state_next")
+  @@index([state, summaryDueAt], name: "idx_onboarding_state_summary")
+  @@index([conversationId], name: "idx_onboarding_conversation")
+  @@index([firstAttemptAt], name: "idx_onboarding_first_attempt")
+  @@map("onboarding_leads")
+}
