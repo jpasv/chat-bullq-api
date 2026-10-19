@@ -28,6 +28,7 @@ import {
   renderAttempt,
   renderResume,
   renderSilentFollowup,
+  renderAfterSupport,
   revenueAbove500kYear,
   snapshotFromTask,
 } from './onboarding-rules';
@@ -256,6 +257,8 @@ export class LeadOnboardingService {
     }
     const n = (done + 1) as 1 | 2;
     const snapshot = this.snapshotOf(lead);
+    // Parou com o suporte (Lívia): volta pro onboarding, que segue pro convite quando ele responder.
+    const fromSupport = await this.messenger.returnFromSupport(lead.conversationId);
     const specific =
       n === 1 && lead.pendingReason && !lead.resumeSentAt
         ? renderResume(lead.pendingReason, snapshot, lead.pendingDetail)
@@ -264,7 +267,7 @@ export class LeadOnboardingService {
       target: { digits: lead.phone, jid: `${lead.phone}@s.whatsapp.net` },
       name: null,
       email: null,
-      text: specific ?? renderSilentFollowup(n, snapshot),
+      text: fromSupport ? renderAfterSupport(snapshot) : specific ?? renderSilentFollowup(n, snapshot),
       conversationId: lead.conversationId,
     });
     const { start, end } = this.config.sendWindow;

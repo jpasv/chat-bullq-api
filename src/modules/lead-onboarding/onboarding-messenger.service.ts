@@ -181,7 +181,11 @@ export class OnboardingMessengerService {
       orderBy: { createdAt: 'desc' },
       select: { direction: true },
     });
-    if (last?.direction === MessageDirection.INBOUND) return 'owes_reply';
+    // Com o suporte, "obrigado"/"ok" do lead costuma ser o fim do atendimento:
+    // 24h depois a retomada devolve a conversa pro onboarding em vez de travar.
+    if (last?.direction === MessageDirection.INBOUND && conv.activeAgentId !== this.config.supportAgentId) {
+      return 'owes_reply';
+    }
     return null;
   }
 
