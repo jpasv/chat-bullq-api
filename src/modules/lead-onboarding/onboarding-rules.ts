@@ -98,8 +98,6 @@ export function firstName(name: string | null): string {
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
-const OPENING = 'Aqui é da Bravy.';
-
 /**
  * Tira o ponto final de cada linha (pedido do Tiago: ponto final no fim da
  * mensagem soa como IA no WhatsApp). Mantém reticências e pontuação interna.
@@ -111,43 +109,59 @@ export function stripTrailingPeriod(text: string): string {
     .join('\n');
 }
 
-/** Copy literal das 3 tentativas (spec, seções 1 e 8), sem ponto final. */
-export function renderAttempt(attempt: 1 | 2 | 3, lead: LeadSnapshot): string {
-  return stripTrailingPeriod(renderAttemptRaw(attempt, lead));
+/**
+ * Como o produto aparece na conversa. Nome de vitrine ("Gravação Masterclass
+ * Vibecoding", "Claude code para iniciantes") vira "o curso"; 57 Agents fica
+ * como está; vazio = sem produto (a frase se vira sem ele).
+ */
+export function productRef(produto: string | null): string | null {
+  const p = (produto ?? '').trim();
+  if (!p) return null;
+  if (/^57 agents/i.test(p)) return `o ${p}`;
+  return 'o curso';
 }
 
-function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string {
+/**
+ * Copy das 3 tentativas (ajuste 41, 19/10: tom de gente, sem ponto final).
+ * Cada item é uma mensagem separada no WhatsApp.
+ */
+export function renderAttempt(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
+  return renderAttemptRaw(attempt, lead).map(stripTrailingPeriod);
+}
+
+function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
   const nome = lead.firstName?.trim() || '';
-  const produto = lead.produto?.trim() || 'o produto';
-  const oProduto = lead.produto?.trim() ? `o ${produto}` : produto;
+  const ref = productRef(lead.produto);
 
   if (attempt === 1) {
-    const oi = nome ? `Oi, ${nome}!` : 'Oi!';
-    const corpo = openerBody(lead.progresso, oProduto);
-    return `${oi} ${OPENING} ${corpo}`;
+    const oi = nome ? `Oi ${nome}, tudo bem? Aqui é da Bravy` : 'Oi, tudo bem? Aqui é da Bravy';
+    return [oi, openerBody(lead.progresso, ref)];
   }
   if (attempt === 2) {
-    const pergunta = `ficou alguma dúvida para começar a usar ${oProduto}? Pode me contar por aqui.`;
-    return nome ? `${nome}, ${pergunta}` : capitalize(pergunta);
+    const corpo = 'conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo';
+    return [nome ? `${nome}, ${corpo}` : capitalize(corpo)];
   }
-  const encerra = nome
-    ? `Vou encerrar esse acompanhamento por aqui, ${nome}.`
-    : 'Vou encerrar esse acompanhamento por aqui.';
-  return `${encerra} Se precisar de ajuda com ${oProduto}, pode escrever neste número.`;
+  const fim = ref
+    ? `quando quiser ajuda com ${ref} é só me mandar mensagem aqui`
+    : 'quando quiser ajuda é só me mandar mensagem aqui';
+  const encerra = `vou parar de te chamar por aqui pra não encher, tá? ${fim}`;
+  return [nome ? `${nome}, ${encerra}` : capitalize(encerra)];
 }
 
-function openerBody(progresso: string | null, oProduto: string): string {
+function openerBody(progresso: string | null, ref: string | null): string {
+  const com = ref ? ` com ${ref}` : '';
+  const de = ref ? ` ${ref.replace(/^o /, 'do ')}` : '';
   switch ((progresso ?? '').trim()) {
     case 'Ainda não tive tempo de começar':
-      return `Você comentou no formulário que ainda não tinha começado com ${oProduto}. Conseguiu olhar desde então?`;
+      return `vi no formulário que você ainda não tinha começado${com}, conseguiu mexer?`;
     case 'Instalei, tô implementando agora':
-      return `Como foi colocar ${oProduto} pra funcionar depois da instalação?`;
+      return ref ? `vi que você já instalou ${ref}, como tá sendo colocar pra rodar?` : 'vi que você já instalou, como tá sendo colocar pra rodar?';
     case 'Sim, tá rodando no dia a dia':
-      return `Em qual tarefa você está usando mais ${oProduto}?`;
+      return ref ? `vi que ${ref} já tá rodando aí, em que ele mais tem te ajudado?` : 'vi que já tá rodando aí, em que mais tem te ajudado?';
     case 'Tive dificuldade técnica e parei':
-      return `Você comentou que teve uma dificuldade com ${oProduto}. Conseguiu resolver?`;
+      return `vi que você travou em alguma parte${de}, conseguiu resolver?`;
     default:
-      return `Você conseguiu começar a usar ${oProduto} ou ficou alguma dúvida?`;
+      return ref ? `vi que você pegou ${ref}, conseguiu começar?` : 'vi que você começou com a gente, conseguiu mexer?';
   }
 }
 
@@ -161,8 +175,8 @@ export function renderSilentFollowup(n: 1 | 2, lead: LeadSnapshot): string {
   const pre = nome ? `${nome}, ` : '';
   const msg =
     n === 1
-      ? `${pre}conseguiu ver minha última mensagem? Fico no aguardo por aqui`
-      : `${pre}vou deixar nossa conversa quieta por enquanto. Quando quiser continuar, é só me responder aqui`;
+      ? `${pre}conseguiu ver minha última mensagem?`
+      : `${pre}vou deixar quieto por aqui por enquanto, tá? quando quiser continuar é só me responder`;
   return capitalize(msg);
 }
 

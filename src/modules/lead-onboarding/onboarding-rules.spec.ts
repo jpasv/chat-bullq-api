@@ -82,34 +82,34 @@ describe('revenueQualifies', () => {
 });
 
 describe('renderAttempt', () => {
-  it('mensagem 1 varia pelo progresso do formulário', () => {
-    const msg = renderAttempt(
-      1,
-      lead({ progresso: 'Ainda não tive tempo de começar' }),
-    );
-    expect(msg).toBe(
-      'Oi, Mayara! Aqui é da Bravy. Você comentou no formulário que ainda não tinha começado com o 57 Agents Advocacia. Conseguiu olhar desde então?',
-    );
+  it('mensagem 1: dois balões, segundo varia pelo progresso', () => {
+    expect(renderAttempt(1, lead({ progresso: 'Ainda não tive tempo de começar' }))).toEqual([
+      'Oi Mayara, tudo bem? Aqui é da Bravy',
+      'vi no formulário que você ainda não tinha começado com o 57 Agents Advocacia, conseguiu mexer?',
+    ]);
   });
   it('mensagem 1 sem progresso usa a abertura geral', () => {
-    expect(renderAttempt(1, lead())).toBe(
-      'Oi, Mayara! Aqui é da Bravy. Você conseguiu começar a usar o 57 Agents Advocacia ou ficou alguma dúvida?',
+    expect(renderAttempt(1, lead())[1]).toBe('vi que você pegou o 57 Agents Advocacia, conseguiu começar?');
+  });
+  it('nome de vitrine do produto vira "o curso"', () => {
+    expect(renderAttempt(1, lead({ produto: 'Gravação Masterclass Vibecoding' }))[1]).toBe(
+      'vi que você pegou o curso, conseguiu começar?',
     );
   });
-  it('mensagens 2 e 3 são as do spec', () => {
-    expect(renderAttempt(2, lead())).toBe(
-      'Mayara, ficou alguma dúvida para começar a usar o 57 Agents Advocacia? Pode me contar por aqui',
-    );
-    expect(renderAttempt(3, lead())).toBe(
-      'Vou encerrar esse acompanhamento por aqui, Mayara. Se precisar de ajuda com o 57 Agents Advocacia, pode escrever neste número',
-    );
+  it('mensagens 2 e 3', () => {
+    expect(renderAttempt(2, lead())).toEqual([
+      'Mayara, conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo',
+    ]);
+    expect(renderAttempt(3, lead())).toEqual([
+      'Mayara, vou parar de te chamar por aqui pra não encher, tá? quando quiser ajuda com o 57 Agents Advocacia é só me mandar mensagem aqui',
+    ]);
   });
-  it('nunca envia placeholder vazio', () => {
-    const msg = renderAttempt(2, lead({ firstName: '', name: null, produto: null }));
-    expect(msg).not.toMatch(/\{|\}/);
-    expect(msg).toBe(
-      'Ficou alguma dúvida para começar a usar o produto? Pode me contar por aqui',
-    );
+  it('nunca envia placeholder vazio nem ponto final', () => {
+    const msgs = renderAttempt(1, lead({ firstName: '', name: null, produto: null }));
+    expect(msgs).toEqual(['Oi, tudo bem? Aqui é da Bravy', 'vi que você começou com a gente, conseguiu mexer?']);
+    for (const m of [...msgs, ...renderAttempt(2, lead()), ...renderAttempt(3, lead())]) {
+      expect(m).not.toMatch(/[{}]|\.$/);
+    }
   });
 });
 

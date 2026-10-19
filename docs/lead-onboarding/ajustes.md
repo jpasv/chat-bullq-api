@@ -48,6 +48,7 @@ Como registrar um ajuste novo: acrescentar uma linha no fim da tabela, com a dat
 | 38 | 19/10/2026 | Tiago Teles | Start date = última ação e due date = próxima ação em todo lead; em reunião agendada, start/due = início/fim da reunião | Toda ação do fluxo atualiza as datas da task (tentativa, resposta, inativação, qualificação, pendência, suporte, opt-out, pausa). Sem próxima ação agendada, o due fica vazio | PR #30 |
 | 39 | 19/10/2026 | Tiago Teles | Lead em qualificação não pode ficar sem próxima ação | Até 2 retomadas automáticas, 24h depois do silêncio do lead, na janela 8h-20h; depois Atividade = Inativo com status mantido. Due date = próxima retomada. Não cutuca quando a conversa está com o time | PR #31 |
 | 40 | 19/10/2026 | Tiago Teles | Aguardando humano também ganha tag | Tag `aguardando-humano` quando o agente pede humano, com start/due na hora do pedido (task fica atrasada até alguém agir). Sai quando alguém responde pelo WhatsApp do Tiago | PR #31 |
+| 41 | 19/10/2026 | Tiago Teles | A conversa ainda está muito robotizada | Prompt reescrito: proibido repetir/parafrasear o lead, reagir antes de perguntar, perguntas variadas em palavras do dia a dia, lista de termos proibidos (principal objetivo, maior dor, operação, implantação...), exemplos de antes e depois das conversas reais, resposta de robô do lead vai pra humano. Abertura em 2 balões com nome curto do produto. Resposta da IA quebra em balões e a Lívia segue o mesmo tom (sem ponto final) nas conversas do onboarding | este PR |
 
 ## Correções técnicas (sem pedido explícito)
 

@@ -49,11 +49,7 @@ export class ReplyToConversationTool implements AiTool {
     input: Record<string, unknown>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
-    const raw = String(input.text ?? '').trim();
-    // Onboarding pós-venda (WhatsApp pessoal do Tiago): sem ponto final no fim
-    // das linhas, pra não soar como IA.
-    const text =
-      ctx.agentId === process.env.ONBOARDING_AGENT_ID ? stripTrailingPeriod(raw) : raw;
+    const text = String(input.text ?? '').trim();
     if (!text) {
       return { output: { ok: false, error: 'text is empty' } };
     }
@@ -90,6 +86,7 @@ export class ReplyToConversationTool implements AiTool {
       this.prisma.conversation.findUnique({
         where: { id: ctx.conversationId },
         select: {
+          metadata: true,
           organization: { select: { allowedUrlDomains: true } },
         },
       }),
@@ -131,58 +128,93 @@ export class ReplyToConversationTool implements AiTool {
       };
     }
 
-    const message = await this.prisma.message.create({
-      data: {
-        conversationId: ctx.conversationId,
-        direction: MessageDirection.OUTBOUND,
-        type: MessageContentType.TEXT,
-        content: { text },
-        status: MessageStatus.QUEUED,
-        senderName: agent?.name ?? 'AI',
-        metadata: { aiAgentId: ctx.agentId, runId: ctx.runId },
-      },
-    });
+    // Onboarding pós-venda (WhatsApp pessoal do Tiago), inclusive a Lívia
+    // atendendo um lead de lá: sem ponto final no fim das linhas e uma linha
+    // em branco vira um balão separado, como gente escreve no WhatsApp.
+    const parts = isOnboardingVoice(ctx.agentId, conversation?.metadata)
+      ? splitBubbles(text).map(stripTrailingPeriod)
+      : [text];
 
-    await this.prisma.conversation.update({
-      where: { id: ctx.conversationId },
-      data: { lastMessageAt: new Date() },
-    });
-
-    this.realtime.emitToChannel(ctx.channelId, 'message:new', {
-      message,
-      conversationId: ctx.conversationId,
-      contactId: ctx.contactId,
-    });
-    this.realtime.emitToConversation(ctx.conversationId, 'message:new', {
-      message,
-    });
-
-    await this.outboundQueue.add(
-      'send-outbound',
-      {
-        messageId: message.id,
-        channelId: ctx.channelId,
-        contactExternalId: contactChannel.externalId,
-        message: {
+    let firstId: string | null = null;
+    for (const [i, part] of parts.entries()) {
+      const message = await this.prisma.message.create({
+        data: {
+          conversationId: ctx.conversationId,
+          direction: MessageDirection.OUTBOUND,
           type: MessageContentType.TEXT,
-          content: { text },
+          content: { text: part },
+          status: MessageStatus.QUEUED,
+          senderName: agent?.name ?? 'AI',
+          metadata: { aiAgentId: ctx.agentId, runId: ctx.runId },
         },
-      },
-      {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5_000 },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
-    );
+      });
+      firstId ??= message.id;
 
-    this.logger.log(
-      `Agent ${ctx.agentId} replied to conv ${ctx.conversationId} (msg ${message.id})`,
-    );
+      await this.prisma.conversation.update({
+        where: { id: ctx.conversationId },
+        data: { lastMessageAt: new Date() },
+      });
+
+      this.realtime.emitToChannel(ctx.channelId, 'message:new', {
+        message,
+        conversationId: ctx.conversationId,
+        contactId: ctx.contactId,
+      });
+      this.realtime.emitToConversation(ctx.conversationId, 'message:new', {
+        message,
+      });
+
+      await this.outboundQueue.add(
+        'send-outbound',
+        {
+          messageId: message.id,
+          channelId: ctx.channelId,
+          contactExternalId: contactChannel.externalId,
+          message: {
+            type: MessageContentType.TEXT,
+            content: { text: part },
+          },
+        },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5_000 },
+          // Atraso crescente mantém a ordem dos balões.
+          delay: i * BUBBLE_GAP_MS,
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+
+      this.logger.log(
+        `Agent ${ctx.agentId} replied to conv ${ctx.conversationId} (msg ${message.id})`,
+      );
+    }
 
     return {
-      output: { ok: true, messageId: message.id },
+      output: { ok: true, messageId: firstId },
       finalAction: 'REPLIED',
     };
   }
+}
+
+const BUBBLE_GAP_MS = 3_000;
+const MAX_BUBBLES = 3;
+
+/** Agente do onboarding, ou o suporte atendendo uma conversa encaminhada por ele. */
+export function isOnboardingVoice(agentId: string, metadata: unknown): boolean {
+  const onboardingId = process.env.ONBOARDING_AGENT_ID;
+  if (!onboardingId) return false;
+  if (agentId === onboardingId) return true;
+  const md = (metadata ?? {}) as Record<string, unknown>;
+  return md.returnToAgentId === onboardingId;
+}
+
+/** Linha em branco separa balões; o excedente vai junto no último. */
+export function splitBubbles(text: string): string[] {
+  const parts = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length <= MAX_BUBBLES) return parts.length ? parts : [text];
+  return [...parts.slice(0, MAX_BUBBLES - 1), parts.slice(MAX_BUBBLES - 1).join('\n')];
 }

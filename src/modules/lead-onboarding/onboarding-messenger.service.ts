@@ -12,9 +12,16 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
-import { ATTEMPT_MESSAGE_SOURCE, SUPPORT_RETURN_NOTE } from './lead-onboarding.constants';
+import {
+  ATTEMPT_MESSAGE_SOURCE,
+  LEGACY_SUPPORT_RETURN_NOTES,
+  SUPPORT_RETURN_NOTE,
+} from './lead-onboarding.constants';
 
 /** O 1258 é o WhatsApp pessoal do Tiago: conversa em andamento com ele não é nossa. */
+/** Intervalo entre balões quando uma tentativa tem mais de uma mensagem. */
+const MULTI_MESSAGE_GAP_MS = 4_000;
+
 export class HumanConversationError extends Error {
   constructor(readonly conversationId: string) {
     super(`conversa existente com humano: ${conversationId}`);
@@ -79,7 +86,8 @@ export class OnboardingMessengerService {
     target: WhatsAppTarget;
     name: string | null;
     email: string | null;
-    text: string;
+    /** Uma mensagem ou várias, enviadas em sequência (balões separados). */
+    text: string | string[];
     conversationId?: string | null;
   }): Promise<{ conversationId: string; contactId: string }> {
     const organizationId = this.requireConfig('orgId');
@@ -90,7 +98,11 @@ export class OnboardingMessengerService {
       params.conversationId ??
       (await this.ensureConversation(organizationId, channelId, contactId));
 
-    await this.enqueue(channelId, contactId, conversationId, params.target.jid, params.text);
+    const texts = (Array.isArray(params.text) ? params.text : [params.text]).filter((t) => t.trim());
+    for (const [i, text] of texts.entries()) {
+      // Atraso crescente garante a ordem dos balões na fila de saída.
+      await this.enqueue(channelId, contactId, conversationId, params.target.jid, text, i * MULTI_MESSAGE_GAP_MS);
+    }
     return { conversationId, contactId };
   }
 
@@ -202,7 +214,9 @@ export class OnboardingMessengerService {
     if (!target) return null;
     delete md.returnToAgentId;
     if (typeof md.promptContext === 'string') {
-      md.promptContext = md.promptContext.replace(SUPPORT_RETURN_NOTE, '').trim();
+      let ctxText: string = md.promptContext.replace(SUPPORT_RETURN_NOTE, '');
+      for (const legacy of LEGACY_SUPPORT_RETURN_NOTES) ctxText = ctxText.replace(legacy, '');
+      md.promptContext = ctxText.trim();
     }
     await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -359,6 +373,7 @@ export class OnboardingMessengerService {
     conversationId: string,
     externalId: string,
     text: string,
+    delayMs = 0,
   ): Promise<void> {
     const content = { text };
     const message = await this.prisma.message.create({
@@ -386,7 +401,7 @@ export class OnboardingMessengerService {
         contactExternalId: externalId,
         message: { type: MessageContentType.TEXT, content },
       },
-      { attempts: 3, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: true, removeOnFail: false },
+      { attempts: 3, backoff: { type: 'exponential', delay: 5_000 }, delay: delayMs, removeOnComplete: true, removeOnFail: false },
     );
     this.logger.log(`Onboarding: mensagem enfileirada conv=${conversationId}`);
   }
