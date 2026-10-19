@@ -6,6 +6,7 @@ import {
 import { AiTool, ToolContext, ToolResult } from '../tool.types';
 
 const RESULTS: QualificationResult[] = ['qualificado', 'aguardando_socios', 'desqualificado'];
+const BELOW_CUT = ['Até R$ 10.000', 'R$ 10.000 a R$ 50.000'];
 const FAIXAS = [
   'Até R$ 10.000',
   'R$ 10.000 a R$ 50.000',
@@ -19,7 +20,7 @@ const FAIXAS = [
 export class RegistrarQualificacaoTool implements AiTool {
   readonly name = 'registrarQualificacao';
   readonly description =
-    'Registra no Hoppe o resultado da qualificação. Só chame quando as respostas sustentarem o resultado. "qualificado" = faturamento a partir de R$ 50 mil/mês confirmado, é decisor e prioridade média ou alta (chame ANTES de convidar pro diagnóstico). "aguardando_socios" = qualificado mas os sócios ainda não confirmaram presença. "desqualificado" = faturamento confirmado abaixo de R$ 50 mil/mês, não decide e quem decide não participa, ou prioridade baixa. Faturamento desconhecido NÃO é desqualificação.';
+    'Registra no Hoppe o resultado da qualificação. Só chame quando as respostas sustentarem o resultado. "qualificado" = faturamento a partir de R$ 50 mil/mês confirmado, é decisor e prioridade média ou alta (chame ANTES de convidar pro diagnóstico). "aguardando_socios" = qualificado mas os sócios ainda não confirmaram presença. "desqualificado" = faturamento confirmado abaixo de R$ 50 mil/mês, não decide e quem decide não participa, ou prioridade baixa. "qualificado" e "aguardando_socios" exigem faturamentoConfirmado (faixa que o cliente confirmou nesta conversa); sem ele o agendamento fica bloqueado.';
   readonly parameters = {
     type: 'object',
     additionalProperties: false,
@@ -52,6 +53,14 @@ export class RegistrarQualificacaoTool implements AiTool {
     const faixa = typeof input.faturamentoConfirmado === 'string' && FAIXAS.includes(input.faturamentoConfirmado)
       ? input.faturamentoConfirmado
       : null;
+    if (resultado !== 'desqualificado') {
+      if (!faixa) {
+        return { output: { ok: false, error: 'falta_faturamento', hint: 'Confirme o faturamento mensal com o cliente antes de qualificar.' } };
+      }
+      if (BELOW_CUT.includes(faixa)) {
+        return { output: { ok: false, error: 'faturamento_abaixo_do_corte', hint: 'Abaixo de R$ 50 mil/mês é desqualificado; não convide.' } };
+      }
+    }
     await this.onboarding.recordQualification(lead, {
       resultado,
       motivo: String(input.motivo ?? '').trim(),

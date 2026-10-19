@@ -322,7 +322,7 @@ export function buildPromptContext(lead: LeadSnapshot, extra: { attempt: number;
     );
   }
   if (revenueAbove200kMonth(lead.faturamento)) {
-    lines.push('PRIORIDADE ALTA (faturamento de R$ 200 mil/mês pra cima): convide pro diagnóstico com horário já na primeira resposta dele.');
+    lines.push('PRIORIDADE ALTA (faturamento de R$ 200 mil/mês pra cima no formulário): qualifique sem enrolar e convide assim que confirmar.');
   }
   return lines.join('\n');
 }
