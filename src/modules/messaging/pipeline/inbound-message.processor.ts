@@ -395,8 +395,10 @@ export class InboundMessageProcessor extends WorkerHost {
         await this.webhookEvents.markFailed(webhookEventId, err.message);
       }
       // Release the claim so retries can try again — next attempt re-acquires.
+      // (Deleting the key, NOT marking it processed: marking would make the
+      // retry hit `duplicate_claim` and silently drop the message.)
       await this.idempotency
-        .markProcessed(message.externalMessageId, channelId)
+        .releaseClaim(message.externalMessageId, channelId)
         .catch(() => undefined);
       throw err;
     }

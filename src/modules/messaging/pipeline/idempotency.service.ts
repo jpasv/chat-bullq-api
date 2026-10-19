@@ -77,6 +77,19 @@ export class IdempotencyService implements OnModuleDestroy {
     );
   }
 
+  /**
+   * Undo a claim taken by `claimProcessing`. Used when processing FAILED so
+   * the BullMQ retry can re-acquire the claim instead of being dropped as a
+   * duplicate.
+   */
+  async releaseClaim(
+    externalMessageId: string,
+    channelId: string,
+  ): Promise<void> {
+    if (!externalMessageId) return;
+    await this.redis.del(this.key(channelId, externalMessageId));
+  }
+
   async isDuplicate(
     externalMessageId: string,
     channelId: string,
