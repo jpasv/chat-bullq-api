@@ -166,6 +166,33 @@ function openerBody(progresso: string | null, ref: string | null): string {
 }
 
 /** Retomada única quando o lead parou no meio do agendamento (spec, seção 8). */
+const AUTO_REPLY_PATTERNS = [
+  /agradece (o )?(seu )?contato/i,
+  /obrigad[oa] (pelo|por entrar em) contato/i,
+  /em breve (irei|vou|retornarei|retornaremos|responderemos|daremos)/i,
+  /(mensagem|resposta) autom[aá]tica/i,
+  /fora do (nosso )?hor[aá]rio/i,
+  /no momento n[aã]o (posso|estou|podemos)/i,
+  /sou (o|a) assistente/i,
+  /assistente virtual/i,
+  /preencha o formul[aá]rio|preenche o formul[aá]rio/i,
+];
+
+/**
+ * A mensagem do lead parece resposta automática do WhatsApp Business dele?
+ * Chegou segundos depois da nossa tentativa, ou tem frase típica de
+ * saudação/ausência e veio logo depois (até 10 min).
+ */
+export function isLikelyAutoReply(text: string | null, lastAttemptAt: Date | null, now: Date): boolean {
+  if (!lastAttemptAt) return false;
+  const elapsed = now.getTime() - lastAttemptAt.getTime();
+  if (elapsed < 0) return false;
+  if (elapsed <= 15_000) return true;
+  if (elapsed > 10 * 60_000) return false;
+  const t = text ?? '';
+  return AUTO_REPLY_PATTERNS.some((re) => re.test(t));
+}
+
 /**
  * Retomada de quem parou de responder no meio da qualificação (1ª e 2ª).
  * Curta e sem repetir a pergunta: o agente retoma o ponto quando o lead voltar.

@@ -103,3 +103,15 @@ describe('onInbound — datas no Hoppe', () => {
     expect((hoppe as any).setDates).not.toHaveBeenCalled();
   });
 });
+
+describe('onInbound — resposta automática do lead', () => {
+  it('em CONTACTED logo após a tentativa: não vira REPLIED e marca a mensagem', async () => {
+    const lastAttemptAt = new Date(Date.now() - 5_000);
+    const { service, repo, hoppe, messenger } = build({ id: 'l1', hoppeTaskId: TASK, state: 'CONTACTED', lastAttemptAt });
+    (messenger as any).flagAutoReply = jest.fn().mockResolvedValue(undefined);
+    await service.onInbound('conv1', { isEcho: false, isNew: true, text: 'Fulano agradece seu contato', messageId: 'm1' });
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(hoppe.setStatus).not.toHaveBeenCalled();
+    expect((messenger as any).flagAutoReply).toHaveBeenCalledWith('m1');
+  });
+});

@@ -3,6 +3,7 @@ import {
   onboardingReplyDelayMs,
   stripTrailingPeriod,
   firstName,
+  isLikelyAutoReply,
   isRio,
   LeadSnapshot,
   nextAttemptDelayHours,
@@ -135,5 +136,22 @@ describe('onboardingReplyDelayMs', () => {
     expect(onboardingReplyDelayMs(() => 0)).toBe(30_000);
     expect(onboardingReplyDelayMs(() => 0.999999)).toBeLessThanOrEqual(45_000);
     expect(onboardingReplyDelayMs(() => 0.5)).toBe(37_500);
+  });
+});
+
+describe('isLikelyAutoReply', () => {
+  const sent = new Date('2026-10-19T17:14:01.000Z');
+  const at = (s: number) => new Date(sent.getTime() + s * 1000);
+  it('chegou em segundos depois da tentativa', () => {
+    expect(isLikelyAutoReply('Olá! Como posso ajudar?', sent, at(3))).toBe(true);
+  });
+  it('frase típica de WhatsApp Business nos primeiros minutos (casos reais)', () => {
+    expect(isLikelyAutoReply('Leandro Crispim (Empresário Contábil) agradece seu contato. Como podemos ajudar?', sent, at(60))).toBe(true);
+    expect(isLikelyAutoReply('Aline Sales Contadora agradece seu contato. Preenche o formulário e me conte sua dúvida', sent, at(90))).toBe(true);
+    expect(isLikelyAutoReply('Olá, Tiago! Sou o assistente do Dr. Alexandre Ramalho.', sent, at(40))).toBe(true);
+  });
+  it('resposta de gente não é automática', () => {
+    expect(isLikelyAutoReply('Ainda não / Quero instalar de noite', sent, at(60))).toBe(false);
+    expect(isLikelyAutoReply('obrigado pelo contato, vou olhar hoje', sent, at(3 * 3600))).toBe(false);
   });
 });

@@ -141,11 +141,17 @@ export class OnboardingMessengerService {
       return 'human';
     }
     if (since) {
-      const inbound = await this.prisma.message.findFirst({
+      // Resposta automática do lead (flag onboardingAutoReply) não conta.
+      // Filtro em JS: o filtro JSON do Prisma descarta linhas sem a chave.
+      const inbound = await this.prisma.message.findMany({
         where: { conversationId, direction: MessageDirection.INBOUND, createdAt: { gt: since } },
-        select: { id: true },
+        select: { metadata: true },
+        take: 20,
       });
-      if (inbound) return 'replied';
+      const real = inbound.some(
+        (m) => (m.metadata as Record<string, unknown> | null)?.onboardingAutoReply !== true,
+      );
+      if (real) return 'replied';
     }
     return null;
   }
@@ -223,6 +229,13 @@ export class OnboardingMessengerService {
       data: { activeAgentId: target, metadata: md as Prisma.InputJsonValue },
     });
     return target;
+  }
+
+  /** Marca a mensagem como resposta automática do lead (a IA pula). */
+  async flagAutoReply(messageId: string): Promise<void> {
+    const msg = await this.prisma.message.findUnique({ where: { id: messageId }, select: { metadata: true } });
+    const metadata = { ...((msg?.metadata as Record<string, unknown>) ?? {}), onboardingAutoReply: true };
+    await this.prisma.message.update({ where: { id: messageId }, data: { metadata: metadata as Prisma.InputJsonValue } });
   }
 
   /** Humano assumiu: desliga a IA só nesta conversa. */
