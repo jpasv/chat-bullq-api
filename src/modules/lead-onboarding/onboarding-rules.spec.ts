@@ -102,7 +102,8 @@ describe('renderAttempt', () => {
       'Mayara, conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo',
     ]);
     expect(renderAttempt(3, lead())).toEqual([
-      'Mayara, vou parar de te chamar por aqui pra não encher, tá? quando quiser ajuda com o 57 Agents Advocacia é só me mandar mensagem aqui',
+      'Mayara, como você é cliente, tem um diagnóstico de IA de 1h com o Pedro, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro',
+      'essa semana ainda tem horário, quer que eu separe um pra você?',
     ]);
   });
   it('nunca envia placeholder vazio nem ponto final', () => {

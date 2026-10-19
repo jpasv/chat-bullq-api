@@ -59,6 +59,7 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     addComment: jest.fn().mockResolvedValue(undefined),
   };
   const messenger = {
+    returnFromSupport: jest.fn().mockResolvedValue(null),
     resolveTarget: jest
       .fn()
       .mockResolvedValue({ digits: '5511975286081', jid: '5511975286081@s.whatsapp.net' }),
@@ -210,12 +211,22 @@ describe('LeadOnboardingService.tick', () => {
     const { service, messenger } = build({ lead });
     (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await service.tick(brt('2026-10-18T14:00:00'));
-    expect(messenger.send.mock.calls[0][0].text).toContain('Mayara, vou deixar quieto por aqui');
+    expect(messenger.send.mock.calls[0][0].text[0]).toContain('Mayara, como você é cliente, tem um diagnóstico de IA');
     const done = build({ lead: { ...lead, silentFollowups: 2 } });
     (done.messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await done.service.tick(brt('2026-10-18T14:00:00'));
     expect(done.messenger.send).not.toHaveBeenCalled();
     expect(done.hoppe.setField).toHaveBeenCalledWith(TASK, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.INATIVO);
+  });
+
+  it('retomada de quem parou com o suporte devolve pro onboarding e pergunta se deu certo', async () => {
+    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara' } });
+    const { service, messenger } = build({ lead });
+    (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
+    (messenger as any).returnFromSupport = jest.fn().mockResolvedValue('agent_onboarding_001');
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect((messenger as any).returnFromSupport).toHaveBeenCalledWith('conv1');
+    expect(messenger.send.mock.calls[0][0].text).toBe('Mayara, deu certo por aí depois daquilo?');
   });
 
   it('retomada não sai com a bola no time (humano/aprovação pendente)', async () => {

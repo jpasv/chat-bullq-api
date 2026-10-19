@@ -92,6 +92,10 @@ export function revenueAbove500kYear(faixa: string | null): boolean {
   return f === 'R$ 200.000 a R$ 1 milhão' || f === 'Acima de R$ 1 milhão';
 }
 
+export function revenueAbove200kMonth(faixa: string | null): boolean {
+  return ['R$ 200.000 a R$ 1 milhão', 'Acima de R$ 1 milhão'].includes((faixa ?? '').trim());
+}
+
 export function firstName(name: string | null): string {
   const first = (name ?? '').trim().split(/\s+/)[0] ?? '';
   if (!first) return '';
@@ -141,11 +145,16 @@ function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
     const corpo = 'conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo';
     return [nome ? `${nome}, ${corpo}` : capitalize(corpo)];
   }
-  const fim = ref
-    ? `quando quiser ajuda com ${ref} é só me mandar mensagem aqui`
-    : 'quando quiser ajuda é só me mandar mensagem aqui';
-  const encerra = `vou parar de te chamar por aqui pra não encher, tá? ${fim}`;
-  return [nome ? `${nome}, ${encerra}` : capitalize(encerra)];
+  // Última tentativa leva a oferta: quem não respondeu "conseguiu mexer?"
+  // às vezes responde a um convite concreto (pedido de 19/10, meta de 3/dia).
+  return diagnosticOffer(nome);
+}
+
+/** Convite pro diagnóstico em 2 balões, sem horário (o agente oferece quando ele responder). */
+function diagnosticOffer(nome: string): string[] {
+  const oferta =
+    'como você é cliente, tem um diagnóstico de IA de 1h com o Pedro, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro';
+  return [nome ? `${nome}, ${oferta}` : capitalize(oferta), 'essa semana ainda tem horário, quer que eu separe um pra você?'];
 }
 
 function openerBody(progresso: string | null, ref: string | null): string {
@@ -197,14 +206,16 @@ export function isLikelyAutoReply(text: string | null, lastAttemptAt: Date | nul
  * Retomada de quem parou de responder no meio da qualificação (1ª e 2ª).
  * Curta e sem repetir a pergunta: o agente retoma o ponto quando o lead voltar.
  */
-export function renderSilentFollowup(n: 1 | 2, lead: LeadSnapshot): string {
+export function renderSilentFollowup(n: 1 | 2, lead: LeadSnapshot): string | string[] {
+  const nome = lead.firstName?.trim() ?? '';
+  if (n === 2) return diagnosticOffer(nome);
+  return capitalize(`${nome ? `${nome}, ` : ''}conseguiu ver minha última mensagem?`);
+}
+
+/** Retomada de quem ficou parado com o suporte: checa se resolveu, o agente segue pro convite. */
+export function renderAfterSupport(lead: LeadSnapshot): string {
   const nome = lead.firstName?.trim();
-  const pre = nome ? `${nome}, ` : '';
-  const msg =
-    n === 1
-      ? `${pre}conseguiu ver minha última mensagem?`
-      : `${pre}vou deixar quieto por aqui por enquanto, tá? quando quiser continuar é só me responder`;
-  return capitalize(msg);
+  return capitalize(`${nome ? `${nome}, ` : ''}deu certo por aí depois daquilo?`);
 }
 
 export function renderResume(
@@ -305,6 +316,14 @@ export function buildPromptContext(lead: LeadSnapshot, extra: { attempt: number;
     `Meta 12 meses (formulário): ${lead.meta ?? 'não informado'}`,
     `Tentativas de abordagem já enviadas: ${extra.attempt}. Estado no fluxo: ${extra.state}.`,
   ];
+  if (!lead.progresso && !lead.faturamento && !lead.atuacao) {
+    lines.push(
+      'SEM FORMULÁRIO: este comprador não preencheu o formulário de onboarding. Descubra o nível de maturidade dele ao longo da conversa (já usa IA ou Claude Code no dia a dia? o que faz e pra quem? tamanho da equipe? faturamento), uma coisa por vez e sem virar questionário, e siga pro convite.',
+    );
+  }
+  if (revenueAbove200kMonth(lead.faturamento)) {
+    lines.push('PRIORIDADE ALTA (faturamento de R$ 200 mil/mês pra cima): convide pro diagnóstico com horário já na primeira resposta dele.');
+  }
   return lines.join('\n');
 }
 
