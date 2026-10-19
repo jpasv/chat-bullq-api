@@ -7,6 +7,10 @@ import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.regist
 import { RealtimeGateway } from '../../realtime/realtime.gateway';
 import { NormalizedOutboundMessage } from '../../channel-hub/ports/types';
 import { IdempotencyService } from './idempotency.service';
+import {
+  CONVERSATION_CLOSED_JOB,
+  ConversationClosedJobData,
+} from './outbound-jobs.constants';
 
 interface OutboundJobData {
   messageId: string;
@@ -28,14 +32,25 @@ export class OutboundMessageProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<OutboundJobData>): Promise<any> {
-    const { messageId, channelId, contactExternalId, message } = job.data;
+  async process(job: Job<OutboundJobData | ConversationClosedJobData>): Promise<any> {
+    if (job.name === CONVERSATION_CLOSED_JOB) {
+      return this.processConversationClosed(job.data as ConversationClosedJobData);
+    }
+    const { messageId, channelId, contactExternalId, message } =
+      job.data as OutboundJobData;
 
     const channel = await this.prisma.channel.findUniqueOrThrow({
       where: { id: channelId },
     });
 
     const adapter = this.adapterRegistry.getOutbound(channel.type);
+
+    // Área de membros: o callback precisa do id da conversa no
+    // members-backend (externalThreadId) e do nome de quem respondeu. Montado
+    // aqui pra valer em TODO caminho que enfileira send-outbound.
+    if (channel.type === ChannelType.MEMBERS && !message.membersContext) {
+      await this.attachMembersContext(messageId, message);
+    }
 
     // Email precisa de contexto de threading (threadId + In-Reply-To/
     // References) pra resposta cair no thread certo do Gmail. Montado aqui
@@ -48,8 +63,9 @@ export class OutboundMessageProcessor extends WorkerHost {
     // delay proportional to text length before actually sending. Customers
     // perceive instant replies as bot-like; a 2-4s "typing..." gap with the
     // typing indicator on feels like a real person on the other side.
-    // Email não tem "digitando..." — o delay só atrasaria a entrega.
-    if (channel.type !== ChannelType.GMAIL) {
+    // Email não tem "digitando..." — o delay só atrasaria a entrega. O widget
+    // da área de membros também não.
+    if (channel.type !== ChannelType.GMAIL && channel.type !== ChannelType.MEMBERS) {
       await this.simulateTypingIfAiMessage({
         messageId,
         channel,
@@ -174,6 +190,64 @@ export class OutboundMessageProcessor extends WorkerHost {
       );
       throw error;
     }
+  }
+
+  private async processConversationClosed(data: ConversationClosedJobData) {
+    const channel = await this.prisma.channel.findUnique({
+      where: { id: data.channelId },
+    });
+    if (!channel) return { skipped: true, reason: 'channel_not_found' };
+    const adapter = this.adapterRegistry.getOutbound(channel.type);
+    if (typeof adapter.onConversationClosed !== 'function') {
+      return { skipped: true, reason: 'not_supported' };
+    }
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: data.conversationId },
+      select: { id: true, externalThreadId: true },
+    });
+    if (!conversation) return { skipped: true, reason: 'conversation_not_found' };
+
+    // Erro propaga → retry/backoff do BullMQ.
+    await adapter.onConversationClosed(channel, {
+      id: conversation.id,
+      externalThreadId: conversation.externalThreadId,
+      closedAt: new Date(data.closedAt),
+    });
+    this.logger.log(
+      `conversation_closed delivered: conv=${conversation.id} channel=${channel.id}`,
+    );
+    return { success: true };
+  }
+
+  /**
+   * Preenche `membersContext` (MEMBERS) a partir da Message + Conversation:
+   * externalThreadId da conversa, id interno, nome do autor (atendente →
+   * user.name; IA/automação → senderName) e createdAt.
+   */
+  async attachMembersContext(
+    messageId: string,
+    message: NormalizedOutboundMessage,
+  ): Promise<void> {
+    const row = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: {
+        id: true,
+        createdAt: true,
+        senderName: true,
+        sender: { select: { name: true } },
+        conversation: { select: { externalThreadId: true } },
+      },
+    });
+    if (!row?.conversation?.externalThreadId) {
+      // Sem thread não há pra onde mandar — o adapter falha com erro claro.
+      return;
+    }
+    message.membersContext = {
+      conversationExternalId: row.conversation.externalThreadId,
+      messageId: row.id,
+      agentName: row.sender?.name ?? row.senderName ?? null,
+      createdAt: new Date(row.createdAt).toISOString(),
+    };
   }
 
   private emitStatusUpdate(

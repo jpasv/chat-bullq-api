@@ -349,7 +349,14 @@ export class MessagesService {
     // Assina com o nome de quem enviou. Vale também em conversa individual:
     // vários atendentes dividem o mesmo número, então sem isso o contato não
     // tem como saber com quem falou. Forward pula a assinatura (verbatim).
-    if (!options?.skipSignature && dto.type === 'TEXT' && outboundContent.text) {
+    // Área de membros (MEMBERS) não leva o prefixo no texto: o nome vai
+    // separado (`agentName` no callback) e o widget mostra como autor.
+    if (
+      !options?.skipSignature &&
+      conversation.channel.type !== ChannelType.MEMBERS &&
+      dto.type === 'TEXT' &&
+      outboundContent.text
+    ) {
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
         select: { name: true },

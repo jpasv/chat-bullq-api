@@ -1,8 +1,15 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { AutomationTrigger, ConversationStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { RatingsService } from '../../ratings/ratings.service';
 import { OutboxService } from '../../automations/outbox/outbox.service';
+import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
+import {
+  CONVERSATION_CLOSED_JOB,
+  ConversationClosedJobData,
+} from '../pipeline/outbound-jobs.constants';
 
 type Transition = {
   from: ConversationStatus;
@@ -29,6 +36,8 @@ export class ConversationFsmService {
     private readonly prisma: PrismaService,
     private readonly ratings: RatingsService,
     private readonly outbox: OutboxService,
+    private readonly adapterRegistry: ChannelAdapterRegistry,
+    @InjectQueue('outbound-messages') private readonly outboundQueue: Queue,
   ) {}
 
   canTransition(from: ConversationStatus, to: ConversationStatus): boolean {
@@ -55,8 +64,9 @@ export class ConversationFsmService {
 
     const updateData: Record<string, any> = { status: to };
 
+    const closedAt = new Date();
     if (to === ConversationStatus.CLOSED) {
-      updateData.closedAt = new Date();
+      updateData.closedAt = closedAt;
     }
     if (from === ConversationStatus.CLOSED && to !== ConversationStatus.CLOSED) {
       updateData.closedAt = null;
@@ -105,7 +115,44 @@ export class ConversationFsmService {
       this.ratings.requestRating(conversationId).catch((err) => {
         this.logger.warn(`Failed to request rating for ${conversationId}: ${err?.message}`);
       });
+      // Fire-and-forget: o fechamento NUNCA falha por causa do provider.
+      this.enqueueClosedCallback(conversationId, conversation.channelId, closedAt).catch(
+        (err) =>
+          this.logger.warn(
+            `Failed to enqueue conversation-closed for ${conversationId}: ${err?.message ?? err}`,
+          ),
+      );
     }
+  }
+
+  /**
+   * Canais cujo adapter implementa `onConversationClosed` (MEMBERS) recebem
+   * o aviso de encerramento via job assíncrono na fila outbound (com retry).
+   */
+  async enqueueClosedCallback(
+    conversationId: string,
+    channelId: string,
+    closedAt: Date,
+  ): Promise<void> {
+    const channel = await this.prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { type: true },
+    });
+    if (!channel || !this.adapterRegistry.hasAdapter(channel.type)) return;
+    const adapter = this.adapterRegistry.getOutbound(channel.type);
+    if (typeof adapter.onConversationClosed !== 'function') return;
+
+    const data: ConversationClosedJobData = {
+      conversationId,
+      channelId,
+      closedAt: closedAt.toISOString(),
+    };
+    await this.outboundQueue.add(CONVERSATION_CLOSED_JOB, data, {
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 5000 },
+      removeOnComplete: true,
+      removeOnFail: false,
+    });
   }
 
   async assign(
