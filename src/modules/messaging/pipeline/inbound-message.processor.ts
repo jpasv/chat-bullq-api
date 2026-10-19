@@ -321,6 +321,7 @@ export class InboundMessageProcessor extends WorkerHost {
         .onInbound(conversationId, {
           isEcho,
           isNew,
+          messageId: savedMessage.id,
           text:
             typeof (message.content as any)?.text === 'string'
               ? (message.content as any).text
@@ -703,6 +704,12 @@ export class InboundMessageProcessor extends WorkerHost {
         this.logger.debug(
           `AI skipped after debounce for conv ${conversationId}: no actionable inbound`,
         );
+        return;
+      }
+      // Onboarding: resposta automática do WhatsApp Business do lead não é
+      // conversa. A IA não responde robô; a cadência de tentativas segue.
+      if ((latestInbound.metadata as Record<string, unknown> | null)?.onboardingAutoReply === true) {
+        this.logger.debug(`AI skipped for conv ${conversationId}: onboarding auto-reply`);
         return;
       }
 

@@ -21,6 +21,7 @@ import {
 import {
   adjustToSendWindow,
   buildPromptContext,
+  isLikelyAutoReply,
   isRio,
   LeadSnapshot,
   nextAttemptDelayHours,
@@ -345,7 +346,7 @@ export class LeadOnboardingService {
   /** Chamado pelo pipeline de inbound em toda mensagem nova da conversa. */
   async onInbound(
     conversationId: string,
-    msg: { isEcho: boolean; isNew: boolean; text: string | null },
+    msg: { isEcho: boolean; isNew: boolean; text: string | null; messageId?: string },
   ): Promise<void> {
     const lead = await this.repo.findByConversation(conversationId);
     if (!lead) return;
@@ -360,6 +361,16 @@ export class LeadOnboardingService {
       await this.safe(() => this.hoppe.removeTag(lead.hoppeTaskId, HUMAN_TAG));
       await this.safe(() =>
         this.hoppe.addComment(lead.hoppeTaskId, `Tiago respondeu direto pelo WhatsApp em ${fmt(now)}; IA pausada nesta conversa.`),
+      );
+      return;
+    }
+
+    // Resposta automática do WhatsApp Business do lead: não conta como
+    // resposta (as tentativas seguem) e a IA não responde (flag na mensagem).
+    if (lead.state === 'CONTACTED' && msg.isNew && isLikelyAutoReply(msg.text, lead.lastAttemptAt ?? null, now)) {
+      if (msg.messageId) await this.safe(() => this.messenger.flagAutoReply(msg.messageId!));
+      await this.safe(() =>
+        this.hoppe.addComment(lead.hoppeTaskId, `Resposta automática do WhatsApp do lead em ${fmt(now)} ignorada; tentativas seguem.`),
       );
       return;
     }
