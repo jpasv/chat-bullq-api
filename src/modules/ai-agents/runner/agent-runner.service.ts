@@ -454,6 +454,14 @@ export class AiAgentRunnerService {
           });
           if (result.finalAction && finalAction === AiFinalAction.NO_ACTION) {
             finalAction = result.finalAction as AiFinalAction;
+          } else if (
+            // Avisou o cliente ("deixa eu te ajudar com isso") e depois
+            // delegou: a delegação prevalece, senão o novo agente não é
+            // encadeado e o cliente fica esperando até escrever de novo.
+            result.finalAction === AiFinalAction.DELEGATED &&
+            finalAction === AiFinalAction.REPLIED
+          ) {
+            finalAction = AiFinalAction.DELEGATED;
           }
           if (
             result.toolName === 'replyToConversation' &&
