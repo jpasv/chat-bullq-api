@@ -31,7 +31,7 @@ describe('DiagnosticCalendarService.freeSlots', () => {
     expect(hours).not.toContain(brt('2026-10-19T20:00:00').getTime());
     expect(hours).toContain(brt('2026-10-19T19:00:00').getTime());
     expect(slots).toHaveLength(10); // 9h..19h = 11 blocos, menos o das 14h
-    expect(slots[0].label).toBe('seg, 19/10 às 9h');
+    expect(slots[0].label).toBe('amanhã às 9h');
   });
 
   it('respeita o máximo pedido', async () => {
@@ -69,5 +69,16 @@ describe('DiagnosticCalendarService.create', () => {
     const body = mocked.post.mock.calls.find(([u]) => String(u).includes('/events'))![1] as any;
     expect(new Date(body.end.dateTime).getTime() - new Date(body.start.dateTime).getTime()).toBe(3_600_000);
     expect(body.conferenceData.createRequest.conferenceSolutionKey.type).toBe('hangoutsMeet');
+  });
+});
+
+
+describe('slotLabel', () => {
+  const { slotLabel } = require('./diagnostic-calendar.service');
+  const now = new Date('2026-10-19T17:00:00.000Z'); // seg 14h BRT
+  it('amanhã, dia da semana e data', () => {
+    expect(slotLabel(new Date('2026-10-20T13:00:00.000Z'), now)).toBe('amanhã às 10h');
+    expect(slotLabel(new Date('2026-10-22T17:00:00.000Z'), now)).toBe('quinta às 14h');
+    expect(slotLabel(new Date('2026-10-27T12:00:00.000Z'), now)).toBe('terça, 27/10, às 9h');
   });
 });

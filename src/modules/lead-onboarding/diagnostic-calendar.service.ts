@@ -14,7 +14,7 @@ const HOUR = 3_600_000;
 const FIRST_HOUR = 9; // primeiro bloco começa 9h
 const LAST_START_HOUR = 19; // último bloco 19h-20h
 const TZ = 'America/Sao_Paulo';
-const WEEKDAYS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const WEEKDAYS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
 /**
  * Agenda "Diagnósticos de IA – Pedro" (conta produtos@asv.digital). Oferece
@@ -51,7 +51,7 @@ export class DiagnosticCalendarService {
         const start = new Date(firstDay.getTime() + (d * 24 + h) * HOUR);
         const stop = new Date(start.getTime() + HOUR);
         if (busy.some((b) => b.start < stop && b.end > start)) continue;
-        slots.push({ startIso: start.toISOString(), label: label(start) });
+        slots.push({ startIso: start.toISOString(), label: slotLabel(start, from) });
       }
     }
     return slots;
@@ -120,10 +120,19 @@ function brtMidnight(at: Date, dayOffset = 0): Date {
   return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + dayOffset, 3));
 }
 
-/** "seg, 19/10 às 9h" em horário de Brasília. */
-function label(at: Date): string {
+/**
+ * Rótulo do horário como gente fala: "amanhã às 10h", "quarta às 14h"
+ * (até 6 dias), depois "sexta, 31/10, às 9h". Horário de Brasília.
+ */
+export function slotLabel(at: Date, now: Date): string {
   const local = new Date(at.getTime() - 3 * HOUR);
+  const today = brtMidnight(now, 0);
+  const days = Math.round((brtMidnight(at, 0).getTime() - today.getTime()) / (24 * HOUR));
+  const hora = `${local.getUTCHours()}h`;
+  if (days === 1) return `amanhã às ${hora}`;
+  const weekday = WEEKDAYS[local.getUTCDay()];
+  if (days > 1 && days < 7) return `${weekday} às ${hora}`;
   const dd = String(local.getUTCDate()).padStart(2, '0');
   const mm = String(local.getUTCMonth() + 1).padStart(2, '0');
-  return `${WEEKDAYS[local.getUTCDay()]}, ${dd}/${mm} às ${local.getUTCHours()}h`;
+  return `${weekday}, ${dd}/${mm}, às ${hora}`;
 }
