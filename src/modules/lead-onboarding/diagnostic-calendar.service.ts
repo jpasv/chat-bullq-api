@@ -65,8 +65,9 @@ export class DiagnosticCalendarService {
     for (let d = 0; d < days && slots.length < max; d++) {
       for (const [from_h, to_h] of SLOT_BANDS) {
         if (slots.length >= max) break;
-        for (let h = from_h; h <= to_h; h++) {
-          const start = new Date(firstDay.getTime() + (d * 24 + h) * HOUR);
+        // Passo de 30 min: a agenda do Tiago tem buracos em meia hora.
+        for (let m = from_h * 60; m <= to_h * 60; m += 30) {
+          const start = new Date(firstDay.getTime() + d * 24 * HOUR + m * 60_000);
           if (isFree(start)) {
             slots.push({ startIso: start.toISOString(), label: slotLabel(start, from) });
             break;
@@ -117,7 +118,9 @@ export class DiagnosticCalendarService {
     return { eventId: ev.id, meetLink };
   }
 
+  /** Ocupado na agenda dos diagnósticos OU na de quem mais participa (Tiago). */
   private async busy(timeMin: Date, timeMax: Date): Promise<Array<{ start: Date; end: Date }>> {
+    const ids = [this.calendarId, ...(this.config.extraAttendees ?? [])];
     const token = await this.auth.getCalendarToken();
     const resp = await axios.post(
       'https://www.googleapis.com/calendar/v3/freeBusy',
@@ -125,12 +128,19 @@ export class DiagnosticCalendarService {
         timeMin: timeMin.toISOString(),
         timeMax: timeMax.toISOString(),
         timeZone: TZ,
-        items: [{ id: this.calendarId }],
+        items: ids.map((id) => ({ id })),
       },
       { headers: { Authorization: `Bearer ${token}` }, timeout: 15_000 },
     );
-    const list = resp.data?.calendars?.[this.calendarId]?.busy ?? [];
-    return list.map((b: { start: string; end: string }) => ({ start: new Date(b.start), end: new Date(b.end) }));
+    const calendars = resp.data?.calendars ?? {};
+    const out: Array<{ start: Date; end: Date }> = [];
+    for (const id of ids) {
+      const cal = calendars[id];
+      // Sem acesso à agenda extra: melhor não oferecer nada do que oferecer horário ocupado.
+      if (cal?.errors?.length) throw new Error(`freeBusy sem acesso a ${id}: ${cal.errors[0]?.reason}`);
+      for (const b of cal?.busy ?? []) out.push({ start: new Date(b.start), end: new Date(b.end) });
+    }
+    return out;
   }
 }
 
@@ -148,7 +158,8 @@ export function slotLabel(at: Date, now: Date): string {
   const local = new Date(at.getTime() - 3 * HOUR);
   const today = brtMidnight(now, 0);
   const days = Math.round((brtMidnight(at, 0).getTime() - today.getTime()) / (24 * HOUR));
-  const hora = `${local.getUTCHours()}h`;
+  const min = local.getUTCMinutes();
+  const hora = `${local.getUTCHours()}h${min ? String(min).padStart(2, '0') : ''}`;
   if (days === 1) return `amanhã às ${hora}`;
   const weekday = WEEKDAYS[local.getUTCDay()];
   if (days > 1 && days < 7) return `${weekday} às ${hora}`;

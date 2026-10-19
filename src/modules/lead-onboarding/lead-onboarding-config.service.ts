@@ -46,6 +46,17 @@ export class LeadOnboardingConfigService {
     );
   }
 
+  /**
+   * Agendas que também precisam estar livres e que entram no convite de todo
+   * diagnóstico (pedido do Tiago, 19/10). Lista separada por vírgula.
+   */
+  get extraAttendees(): string[] {
+    return (this.config.get<string>('ONBOARDING_EXTRA_ATTENDEES') ?? 'tiago@asv.digital')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
   /** Horas entre tentativas; a última é a espera antes de inativar. */
   get cadenceHours(): number[] {
     const parsed = (this.config.get<string>('ONBOARDING_FOLLOWUP_HOURS') ?? '')

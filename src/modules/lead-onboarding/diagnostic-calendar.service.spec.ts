@@ -41,6 +41,33 @@ describe('DiagnosticCalendarService.freeSlots', () => {
     expect(slots[0].label).toBe('segunda, 26/10, às 10h');
   });
 
+  it('agenda do Tiago ocupada bloqueia o horário e meia hora vira "11h30"', async () => {
+    mocked.post.mockImplementation(async () => ({
+      data: {
+        calendars: {
+          cal1: { busy: [] },
+          'tiago@asv.digital': {
+            busy: [{ start: brt('2026-10-19T09:00:00').toISOString(), end: brt('2026-10-19T11:30:00').toISOString() }],
+          },
+        },
+      },
+    }) as any);
+    const auth = { getCalendarToken: jest.fn().mockResolvedValue('tok') };
+    const svc = new DiagnosticCalendarService(auth as any, { calendarId: 'cal1', extraAttendees: ['tiago@asv.digital'] } as any);
+    const slots = await svc.freeSlots(brt('2026-10-18T16:30:00'), 1, 2);
+    expect(slots[0].startIso).toBe(brt('2026-10-19T11:30:00').toISOString());
+    expect(slots[0].label).toBe('amanhã às 11h30');
+  });
+
+  it('sem acesso à agenda do Tiago não oferece horário', async () => {
+    mocked.post.mockImplementation(async () => ({
+      data: { calendars: { cal1: { busy: [] }, 'tiago@asv.digital': { errors: [{ reason: 'notFound' }] } } },
+    }) as any);
+    const auth = { getCalendarToken: jest.fn().mockResolvedValue('tok') };
+    const svc = new DiagnosticCalendarService(auth as any, { calendarId: 'cal1', extraAttendees: ['tiago@asv.digital'] } as any);
+    await expect(svc.freeSlots(brt('2026-10-18T16:30:00'), 1, 2)).rejects.toThrow(/sem acesso/);
+  });
+
   it('respeita o máximo pedido', async () => {
     const svc = build([]);
     expect(await svc.freeSlots(brt('2026-10-18T16:30:00'), 4, 6)).toHaveLength(6);
