@@ -42,7 +42,7 @@ describe('tools do onboarding', () => {
     const calendar = { create: jest.fn().mockRejectedValue(new SlotTakenError('x')) };
     const config = { closerEmail: 'produtos@asv.digital' };
     const tool = new AgendarDiagnosticoTool(svc, calendar as any, config as any);
-    const r = await tool.execute({ inicioIso: '2026-10-19T13:00:00.000Z', emails: ['m@x.com'], participantes: ['Mayara'] }, ctx);
+    const r = await tool.execute({ inicioIso: '2099-10-19T13:00:00.000Z', emails: ['m@x.com'], participantes: ['Mayara'] }, ctx);
     expect(r.output).toEqual({ ok: false, error: 'horario_ocupado' });
     expect(hoppe.setStatus).not.toHaveBeenCalled();
   });
@@ -52,8 +52,8 @@ describe('tools do onboarding', () => {
     const calendar = { create: jest.fn().mockResolvedValue({ eventId: 'ev1', meetLink: 'https://meet' }) };
     const config = { closerEmail: 'produtos@asv.digital' };
     const tool = new AgendarDiagnosticoTool(svc, calendar as any, config as any);
-    const r = await tool.execute({ inicioIso: '2026-10-19T13:00:00.000Z', emails: ['m@x.com'], participantes: ['Mayara', 'Carlos'] }, ctx);
-    expect(r.output).toEqual({ ok: true, meetLink: 'https://meet', inicioIso: '2026-10-19T13:00:00.000Z' });
+    const r = await tool.execute({ inicioIso: '2099-10-19T13:00:00.000Z', emails: ['m@x.com'], participantes: ['Mayara', 'Carlos'] }, ctx);
+    expect(r.output).toEqual({ ok: true, meetLink: 'https://meet', inicioIso: '2099-10-19T13:00:00.000Z' });
     const arg = calendar.create.mock.calls[0][0];
     expect(arg.attendees).toEqual(['m@x.com', 'produtos@asv.digital']);
     expect(arg.title).toBe('Diagnóstico de IA – Mayara Silva');

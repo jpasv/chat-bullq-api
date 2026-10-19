@@ -6,6 +6,8 @@ import { GoogleAuthService } from '../ai-agents/tools/client-ops/google-auth.ser
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
 import { LeadOnboardingRepository } from './lead-onboarding.repository';
 import { HoppeLeadsClient } from './hoppe-leads.client';
+import { HoppeChatClient } from './hoppe-chat.client';
+import { OnboardingHumanAlertService } from './onboarding-human-alert.service';
 import { OnboardingMessengerService } from './onboarding-messenger.service';
 import { OnboardingSummaryService } from './onboarding-summary.service';
 import { LeadOnboardingService } from './lead-onboarding.service';
@@ -30,6 +32,8 @@ import { ONBOARDING_TICK_QUEUE } from './lead-onboarding.constants';
     LeadOnboardingConfigService,
     LeadOnboardingRepository,
     HoppeLeadsClient,
+    HoppeChatClient,
+    OnboardingHumanAlertService,
     OnboardingMessengerService,
     OnboardingSummaryService,
     LeadOnboardingService,

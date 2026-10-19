@@ -72,6 +72,13 @@ export class LeadOnboardingConfigService {
     return Number.isFinite(n) && n > 0 ? n : 30;
   }
 
+  /** Canal do chat do Hoppe avisado quando um lead precisa de humano. */
+  get alertChannelId(): string | null {
+    return (
+      this.config.get<string>('ONBOARDING_HOPPE_CHANNEL_ID') ?? '106d566a-a896-4dc5-9ea2-3ef8ca970943'
+    );
+  }
+
   /** Cron do tick. Default: a cada 2 min. */
   get tickPattern(): string {
     return this.config.get<string>('ONBOARDING_TICK_CRON') ?? '*/2 * * * *';

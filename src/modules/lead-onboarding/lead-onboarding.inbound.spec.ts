@@ -85,3 +85,19 @@ describe('LeadOnboardingService.onInbound', () => {
     expect(messenger.pauseConversation).not.toHaveBeenCalled();
   });
 });
+
+describe('onInbound — datas no Hoppe', () => {
+  it('resposta: start = agora, due limpo', async () => {
+    const { service, hoppe } = build({ id: 'l1', hoppeTaskId: TASK, state: 'CONTACTED' });
+    (hoppe as any).setDates = jest.fn().mockResolvedValue(undefined);
+    await service.onInbound('conv1', { isEcho: false, isNew: true, text: 'oi' });
+    expect((hoppe as any).setDates).toHaveBeenCalledWith(TASK, { start: expect.any(Date), due: null });
+  });
+
+  it('reunião agendada: mensagem do lead não mexe nas datas da reunião', async () => {
+    const { service, hoppe } = build({ id: 'l1', hoppeTaskId: TASK, state: 'SCHEDULED' });
+    (hoppe as any).setDates = jest.fn().mockResolvedValue(undefined);
+    await service.onInbound('conv1', { isEcho: false, isNew: true, text: 'ok, até lá' });
+    expect((hoppe as any).setDates).not.toHaveBeenCalled();
+  });
+});

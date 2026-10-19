@@ -84,6 +84,21 @@ export class HoppeLeadsClient {
     );
   }
 
+  /**
+   * start_date/due_date da task (ms). `undefined` não mexe no campo; `null`
+   * limpa (o Hoppe aceita null no PUT).
+   */
+  async setDates(
+    taskId: string,
+    dates: { start?: Date | null; due?: Date | null },
+  ): Promise<void> {
+    const body: Record<string, number | null> = {};
+    if (dates.start !== undefined) body.start_date = dates.start ? dates.start.getTime() : null;
+    if (dates.due !== undefined) body.due_date = dates.due ? dates.due.getTime() : null;
+    if (Object.keys(body).length === 0) return;
+    await this.request('PUT', `/api/v2/task/${taskId}`, body);
+  }
+
   async addComment(taskId: string, text: string): Promise<void> {
     await this.request('POST', `/api/v2/task/${taskId}/comment`, {
       comment_text: text,
