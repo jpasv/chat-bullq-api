@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
+import { isAcknowledgement } from './onboarding-rules';
 import {
   ATTEMPT_MESSAGE_SOURCE,
   LEGACY_SUPPORT_RETURN_NOTES,
@@ -179,8 +180,13 @@ export class OnboardingMessengerService {
     const last = await this.prisma.message.findFirst({
       where: { conversationId, type: { not: 'SYSTEM' } },
       orderBy: { createdAt: 'desc' },
-      select: { direction: true },
+      select: { direction: true, content: true },
     });
+    // "ok"/"blz"/"valeu" do lead fecha o turno dele: a bola está com ele.
+    const lastText = (last?.content as Record<string, unknown> | null)?.text;
+    if (last?.direction === MessageDirection.INBOUND && isAcknowledgement(typeof lastText === 'string' ? lastText : null)) {
+      return null;
+    }
     // Com o suporte, "obrigado"/"ok" do lead costuma ser o fim do atendimento:
     // 24h depois a retomada devolve a conversa pro onboarding em vez de travar.
     if (last?.direction === MessageDirection.INBOUND && conv.activeAgentId !== this.config.supportAgentId) {

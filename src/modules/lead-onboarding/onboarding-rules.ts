@@ -334,3 +334,20 @@ export function buildPromptContext(lead: LeadSnapshot, extra: { attempt: number;
 export function onboardingReplyDelayMs(random: () => number = Math.random): number {
   return Math.round(30_000 + random() * 15_000);
 }
+
+const ACK_WORDS = new Set([
+  'ok', 'okay', 'okey', 'blz', 'beleza', 'valeu', 'vlw', 'obrigado', 'obrigada', 'brigado', 'brigada', 'obg',
+  'show', 'top', 'tranquilo', 'certo', 'combinado', 'fechado', 'perfeito', 'joia', 'jóia', 'massa', 'entendi',
+  'tá', 'ta', 'bom', 'pode', 'deixar', 'boa', 'legal', 'muito', 'e', '👍', '🙏', '👌',
+]);
+
+/**
+ * "ok", "blz", "valeu"... encerram o turno do lead: ninguém deve resposta.
+ * Sem isso a retomada de 24h nunca saía pra quem fechava a conversa assim.
+ */
+export function isAcknowledgement(text: string | null | undefined): boolean {
+  const t = (text ?? '').trim().toLowerCase();
+  if (!t || t.length > 30) return false;
+  const words = t.split(/[\s,.!…]+/u).filter(Boolean);
+  return words.length > 0 && words.every((w) => ACK_WORDS.has(w));
+}
