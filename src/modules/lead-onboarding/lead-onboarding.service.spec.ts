@@ -241,3 +241,57 @@ describe('LeadOnboardingService.tick — correções da revisão', () => {
     expect(repo.update.mock.calls.at(-1)![1].state).toBe('PAUSED');
   });
 });
+
+describe('LeadOnboardingService — start/due date no Hoppe', () => {
+  it('tentativa enviada: start = agora, due = próxima tentativa', async () => {
+    const { service, hoppe } = build();
+    (hoppe as any).setDates = jest.fn().mockResolvedValue(undefined);
+    const now = brt('2026-10-18T10:00:00');
+    await service.tick(now);
+    expect((hoppe as any).setDates).toHaveBeenCalledWith(TASK, {
+      start: now,
+      due: brt('2026-10-18T14:00:00'),
+    });
+  });
+
+  it('inativação: start = agora, due limpo', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 3, conversationId: 'conv1' });
+    const { service, hoppe } = build({ lead });
+    (hoppe as any).setDates = jest.fn().mockResolvedValue(undefined);
+    const now = brt('2026-10-18T14:00:00');
+    await service.tick(now);
+    expect((hoppe as any).setDates).toHaveBeenCalledWith(TASK, { start: now, due: null });
+  });
+
+  it('fora da janela: só move o due, mantém o start', async () => {
+    const { service, hoppe } = build();
+    (hoppe as any).setDates = jest.fn().mockResolvedValue(undefined);
+    await service.tick(brt('2026-10-18T22:00:00'));
+    expect((hoppe as any).setDates).toHaveBeenCalledWith(TASK, {
+      start: undefined,
+      due: brt('2026-10-19T08:00:00'),
+    });
+  });
+
+  it('reunião agendada: start = início, due = fim (1h)', async () => {
+    const { service, hoppe, lead } = build({ lead: leadRow({ state: 'REPLIED' }) });
+    (hoppe as any).setDates = jest.fn().mockResolvedValue(undefined);
+    await service.recordScheduled(lead as any, {
+      eventId: 'ev1',
+      startIso: '2026-10-21T13:00:00.000Z',
+      attendees: ['a@b.com'],
+      meetLink: null,
+    });
+    expect((hoppe as any).setDates).toHaveBeenCalledWith(TASK, {
+      start: new Date('2026-10-21T13:00:00.000Z'),
+      due: new Date('2026-10-21T14:00:00.000Z'),
+    });
+  });
+
+  it('falha ao gravar datas não quebra o fluxo', async () => {
+    const { service, repo, hoppe } = build();
+    (hoppe as any).setDates = jest.fn().mockRejectedValue(new Error('500'));
+    await service.tick(brt('2026-10-18T10:00:00'));
+    expect(repo.update.mock.calls.at(-1)![1].state).toBe('CONTACTED');
+  });
+});

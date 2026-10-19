@@ -1800,6 +1800,8 @@ model OnboardingLead {
   pendingDetail  String?   @map("pending_detail")
   resumeSentAt   DateTime? @map("resume_sent_at")
   meetingEventId String?   @map("meeting_event_id")
+  // Criação da última PendingAction já avisada no canal do Hoppe.
+  humanAlertAt   DateTime? @map("human_alert_at")
   snapshot       Json      @default("{}")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")

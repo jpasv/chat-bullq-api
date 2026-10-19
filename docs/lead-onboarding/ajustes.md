@@ -42,7 +42,10 @@ Como registrar um ajuste novo: acrescentar uma linha no fim da tabela, com a dat
 | 32 | 18/10/2026 | Tiago Teles | A IA responde rápido demais: esperar 30 a 45 segundos | Atraso aleatório de 30 a 45s nas conversas do onboarding | PR #26 |
 | 33 | 18/10/2026 | Tiago Teles | O lead mandou várias mensagens seguidas e a IA respondeu cada uma separada | O mesmo atraso do item 32 reinicia a cada mensagem nova, e a IA responde ao bloco inteiro | PR #26 |
 | 34 | 18/10/2026 | Tiago Teles | Documentar cada ajuste com data e quem pediu | Este arquivo | PR #27 |
-| 35 | 18/10/2026 | Tiago Teles | Toda demanda de suporte vai para a Lívia, que resolve e devolve para o agente continuar a qualificação | Tool `encaminharSuporte` (onboarding → Lívia) e o `handBackToOrchestrator` da Lívia devolve para o agente de onboarding; atraso de 30-45s vale também na vez da Lívia | este PR |
+| 35 | 18/10/2026 | Tiago Teles | Toda demanda de suporte vai para a Lívia, que resolve e devolve para o agente continuar a qualificação | Tool `encaminharSuporte` (onboarding → Lívia) e o `handBackToOrchestrator` da Lívia devolve para o agente de onboarding; atraso de 30-45s vale também na vez da Lívia | PR #28 |
+| 36 | 19/10/2026 | Tiago Teles | A tag `abordar-ia` deve entrar automaticamente | Automação do Hoppe `581146c0` (task criada na Leads onboarding → adiciona `abordar-ia` e chama o webhook). Todo formulário de onboarding novo é abordado sem ação manual | Hoppe |
+| 37 | 19/10/2026 | Tiago Teles | Postar no canal "Leads onboarding" do Hoppe sempre que precisar de um humano (pode usar a conta do Tiago) | Pedido de aprovação do agente (ex.: `transferToHuman`) numa conversa do onboarding vira post no canal e comentário na task, uma vez por pedido. Posta pela API interna com o login do Tiago | este PR |
+| 38 | 19/10/2026 | Tiago Teles | Start date = última ação e due date = próxima ação em todo lead; em reunião agendada, start/due = início/fim da reunião | Toda ação do fluxo atualiza as datas da task (tentativa, resposta, inativação, qualificação, pendência, suporte, opt-out, pausa). Sem próxima ação agendada, o due fica vazio | este PR |
 
 ## Correções técnicas (sem pedido explícito)
 
