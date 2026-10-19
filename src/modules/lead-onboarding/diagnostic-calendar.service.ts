@@ -14,6 +14,12 @@ const HOUR = 3_600_000;
 const FIRST_HOUR = 9; // primeiro bloco começa 9h
 const LAST_START_HOUR = 19; // último bloco 19h-20h
 const TZ = 'America/Sao_Paulo';
+/** Faixas [início, último início] de onde sai 1 horário por dia cada. */
+const SLOT_BANDS: Array<[number, number]> = [
+  [10, 12],
+  [14, LAST_START_HOUR],
+];
+
 const WEEKDAYS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
 /**
@@ -36,22 +42,36 @@ export class DiagnosticCalendarService {
     return id;
   }
 
+  /**
+   * Horários livres de 1h, espalhados: até 2 por dia (manhã a partir das
+   * 10h, tarde a partir das 14h), começando em `startDay` (default amanhã).
+   */
   async freeSlots(
     from: Date,
     days = 4,
     max = 6,
+    startDay?: Date,
   ): Promise<Array<{ startIso: string; label: string }>> {
-    const firstDay = brtMidnight(from, 1);
+    const tomorrow = brtMidnight(from, 1);
+    const firstDay = startDay && startDay > tomorrow ? brtMidnight(startDay, 0) : tomorrow;
     const end = new Date(firstDay.getTime() + days * 24 * HOUR);
     const busy = await this.busy(firstDay, end);
+    const isFree = (start: Date) => {
+      const stop = new Date(start.getTime() + HOUR);
+      return !busy.some((b) => b.start < stop && b.end > start);
+    };
 
     const slots: Array<{ startIso: string; label: string }> = [];
     for (let d = 0; d < days && slots.length < max; d++) {
-      for (let h = FIRST_HOUR; h <= LAST_START_HOUR && slots.length < max; h++) {
-        const start = new Date(firstDay.getTime() + (d * 24 + h) * HOUR);
-        const stop = new Date(start.getTime() + HOUR);
-        if (busy.some((b) => b.start < stop && b.end > start)) continue;
-        slots.push({ startIso: start.toISOString(), label: slotLabel(start, from) });
+      for (const [from_h, to_h] of SLOT_BANDS) {
+        if (slots.length >= max) break;
+        for (let h = from_h; h <= to_h; h++) {
+          const start = new Date(firstDay.getTime() + (d * 24 + h) * HOUR);
+          if (isFree(start)) {
+            slots.push({ startIso: start.toISOString(), label: slotLabel(start, from) });
+            break;
+          }
+        }
       }
     }
     return slots;
