@@ -34,7 +34,10 @@ describe('tools do onboarding', () => {
     const { svc } = realService(lead());
     const calendar = { freeSlots: jest.fn().mockResolvedValue([{ startIso: 'a', label: 'seg, 19/10 às 9h' }]) };
     const tool = new ConsultarHorariosDiagnosticoTool(svc, calendar as any);
-    expect((await tool.execute({}, ctx)).output).toEqual({ ok: true, slots: [{ startIso: 'a', label: 'seg, 19/10 às 9h' }] });
+    const out: any = (await tool.execute({ aPartirDe: '2026-10-26' }, ctx)).output;
+    expect(out.slots).toEqual([{ startIso: 'a', label: 'seg, 19/10 às 9h' }]);
+    expect(out.hoje).toMatch(/^\d{4}-\d{2}-\d{2} \(/);
+    expect(calendar.freeSlots.mock.calls[0][3]).toEqual(new Date('2026-10-26T15:00:00.000Z'));
   });
 
   it('agendar com horário ocupado → horario_ocupado, sem marcar reunião', async () => {

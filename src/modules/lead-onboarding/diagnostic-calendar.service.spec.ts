@@ -20,18 +20,25 @@ function build(busy: Array<{ start: string; end: string }>) {
 describe('DiagnosticCalendarService.freeSlots', () => {
   beforeEach(() => mocked.post.mockReset());
 
-  it('começa amanhã às 9h, pula horário ocupado e nunca oferece 20h', async () => {
+  it('2 por dia (manhã e tarde), pula ocupado e nunca oferece 20h', async () => {
     const svc = build([
-      { start: brt('2026-10-19T14:00:00').toISOString(), end: brt('2026-10-19T15:00:00').toISOString() },
+      { start: brt('2026-10-19T10:00:00').toISOString(), end: brt('2026-10-19T11:00:00').toISOString() },
     ]);
-    const slots = await svc.freeSlots(brt('2026-10-18T16:30:00'), 1, 20);
-    const hours = slots.map((s) => new Date(s.startIso).getTime());
-    expect(slots[0].startIso).toBe(brt('2026-10-19T09:00:00').toISOString());
-    expect(hours).not.toContain(brt('2026-10-19T14:00:00').getTime());
-    expect(hours).not.toContain(brt('2026-10-19T20:00:00').getTime());
-    expect(hours).toContain(brt('2026-10-19T19:00:00').getTime());
-    expect(slots).toHaveLength(10); // 9h..19h = 11 blocos, menos o das 14h
-    expect(slots[0].label).toBe('amanhã às 9h');
+    const slots = await svc.freeSlots(brt('2026-10-18T16:30:00'), 2, 20);
+    expect(slots.map((s) => s.startIso)).toEqual([
+      brt('2026-10-19T11:00:00').toISOString(),
+      brt('2026-10-19T14:00:00').toISOString(),
+      brt('2026-10-20T10:00:00').toISOString(),
+      brt('2026-10-20T14:00:00').toISOString(),
+    ]);
+    expect(slots[0].label).toBe('amanhã às 11h');
+  });
+
+  it('a partir de uma data (semana que vem)', async () => {
+    const svc = build([]);
+    const slots = await svc.freeSlots(brt('2026-10-19T14:00:00'), 1, 6, brt('2026-10-26T12:00:00'));
+    expect(slots[0].startIso).toBe(brt('2026-10-26T10:00:00').toISOString());
+    expect(slots[0].label).toBe('segunda, 26/10, às 10h');
   });
 
   it('respeita o máximo pedido', async () => {
