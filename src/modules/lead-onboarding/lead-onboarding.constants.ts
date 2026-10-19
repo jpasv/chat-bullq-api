@@ -65,7 +65,13 @@ export type OnboardingState =
  * uma conversa do onboarding. Sai quando ela devolve.
  */
 export const SUPPORT_RETURN_NOTE =
-  'Você (suporte) foi chamada para resolver uma demanda de suporte deste lead do onboarding. Resolva só o suporte. Assim que estiver resolvido (ou se o cliente mudar de assunto), chame handBackToOrchestrator: a conversa volta para o agente de onboarding continuar a qualificação.';
+  'Você (suporte) foi chamada para resolver uma demanda de suporte deste lead do onboarding. Resolva só o suporte. Assim que estiver resolvido (ou se o cliente mudar de assunto), chame handBackToOrchestrator: a conversa volta para o agente de onboarding continuar a qualificação.\n' +
+  'Tom nesta conversa (é o WhatsApp pessoal do Tiago): escreva como gente, curto e informal. Não repita nem resuma o que o cliente acabou de dizer. Reaja primeiro ("poxa", "ah, entendi", "boa") e só depois ajude. Nada de "identifico", "verifico", "implantação", "conforme". Sem ponto final no fim da mensagem. Pode separar em 2 mensagens deixando uma linha em branco entre elas.';
+
+/** Versões anteriores da nota, que ainda podem estar gravadas em conversas abertas. */
+export const LEGACY_SUPPORT_RETURN_NOTES = [
+  'Você (suporte) foi chamada para resolver uma demanda de suporte deste lead do onboarding. Resolva só o suporte. Assim que estiver resolvido (ou se o cliente mudar de assunto), chame handBackToOrchestrator: a conversa volta para o agente de onboarding continuar a qualificação.',
+];
 
 /** Origem gravada no metadata das mensagens que o sistema manda. */
 export const ATTEMPT_MESSAGE_SOURCE = 'lead_onboarding_attempt';

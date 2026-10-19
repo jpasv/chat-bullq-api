@@ -93,7 +93,7 @@ describe('LeadOnboardingService.tick', () => {
     await service.tick(now);
 
     expect(messenger.send).toHaveBeenCalledTimes(1);
-    expect(messenger.send.mock.calls[0][0].text).toContain('ainda não tinha começado com o 57 Agents Advocacia');
+    expect(messenger.send.mock.calls[0][0].text[1]).toContain('ainda não tinha começado com o 57 Agents Advocacia');
     expect(hoppe.addTag).toHaveBeenCalledWith(TASK, '1º mensagem');
     expect(hoppe.setField).toHaveBeenCalledWith(TASK, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.ATIVO);
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('1ª tentativa'));
@@ -152,9 +152,9 @@ describe('LeadOnboardingService.tick', () => {
     const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara', produto: '57 Agents Advocacia' } });
     const { service, repo, hoppe, messenger } = build({ lead });
     await service.tick(brt('2026-10-18T14:00:00'));
-    expect(messenger.send.mock.calls[0][0].text).toBe(
-      'Mayara, ficou alguma dúvida para começar a usar o 57 Agents Advocacia? Pode me contar por aqui',
-    );
+    expect(messenger.send.mock.calls[0][0].text).toEqual([
+      'Mayara, conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo',
+    ]);
     expect(hoppe.addTag).toHaveBeenCalledWith(TASK, '2º mensagem');
     expect(repo.update.mock.calls.at(-1)![1].attempt).toBe(2);
   });
@@ -210,7 +210,7 @@ describe('LeadOnboardingService.tick', () => {
     const { service, messenger } = build({ lead });
     (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await service.tick(brt('2026-10-18T14:00:00'));
-    expect(messenger.send.mock.calls[0][0].text).toContain('Mayara, vou deixar nossa conversa quieta');
+    expect(messenger.send.mock.calls[0][0].text).toContain('Mayara, vou deixar quieto por aqui');
     const done = build({ lead: { ...lead, silentFollowups: 2 } });
     (done.messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await done.service.tick(brt('2026-10-18T14:00:00'));
