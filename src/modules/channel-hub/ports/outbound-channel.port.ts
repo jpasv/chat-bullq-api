@@ -77,7 +77,27 @@ export interface OutboundChannelPort {
     externalMessageIds: string[],
   ): Promise<void>;
 
+  /**
+   * Avisa o provider que a conversa foi encerrada no chat-bullq.
+   * MEMBERS: dispara o callback `conversation_closed` (o membro volta pro
+   * bot). Chamado SEMPRE de forma assíncrona (job na fila
+   * `outbound-messages`, nome `conversation-closed`) — o fechamento nunca
+   * falha por causa do callback; erro aqui só faz o job tentar de novo.
+   *
+   * Opcional: só adapters que implementam recebem o job.
+   */
+  onConversationClosed?(
+    channel: Channel,
+    conversation: ClosedConversationInfo,
+  ): Promise<void>;
+
   getRateLimits(): RateLimitConfig;
+}
+
+export interface ClosedConversationInfo {
+  id: string;
+  externalThreadId: string | null;
+  closedAt: Date;
 }
 
 export const OUTBOUND_CHANNEL_PORT = 'OUTBOUND_CHANNEL_PORT';

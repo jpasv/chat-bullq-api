@@ -70,6 +70,7 @@ import { ContactsRepository } from './contacts/contacts.repository';
     ContactsRepository,
   ],
   exports: [
+    IdempotencyService,
     ConversationsService,
     MessagesService,
     ConversationFsmService,

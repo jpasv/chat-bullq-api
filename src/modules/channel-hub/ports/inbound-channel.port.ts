@@ -11,6 +11,7 @@ import {
  * - WA Official: { phoneNumberId, businessAccountId? }
  * - Instagram:   { igBusinessId }
  * - Zappfy:      { instanceId?, token? }
+ * - Members:     { channelId } (header `X-Members-Channel`)
  */
 export interface ChannelLocator {
   phoneNumberId?: string;
@@ -18,6 +19,9 @@ export interface ChannelLocator {
   igBusinessId?: string;
   instanceId?: string;
   token?: string;
+  /** Id do Channel no chat-bullq — usado quando o próprio emissor conhece
+   *  o canal (MEMBERS manda no header `X-Members-Channel`). */
+  channelId?: string;
 }
 
 export interface InboundChannelPort {

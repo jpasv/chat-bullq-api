@@ -19,6 +19,10 @@ import { InstagramSyncAdapter } from './adapters/instagram/instagram.sync-adapte
 import { GmailModule } from './adapters/gmail/gmail.module';
 import { GmailInboundAdapter } from './adapters/gmail/gmail.inbound-adapter';
 import { GmailOutboundAdapter } from './adapters/gmail/gmail.outbound-adapter';
+import { MembersInboundAdapter } from './adapters/members/members.inbound-adapter';
+import { MembersOutboundAdapter } from './adapters/members/members.outbound-adapter';
+import { MembersChannelService } from './adapters/members/members-channel.service';
+import { MembersWebhookController } from './adapters/members/members-webhook.controller';
 import { ChannelSyncOrchestrator } from './sync/channel-sync.orchestrator';
 import { ChannelSyncProcessor } from './sync/channel-sync.processor';
 import { CHANNEL_SYNC_QUEUE } from './sync/channel-sync.constants';
@@ -44,7 +48,7 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
     GmailModule,
     forwardRef(() => MessagingModule),
   ],
-  controllers: [WebhookGatewayController, ChannelsController],
+  controllers: [MembersWebhookController, WebhookGatewayController, ChannelsController],
   providers: [
     ChannelAdapterRegistry,
     ChannelsService,
@@ -53,6 +57,9 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
     ChannelSyncProcessor,
     WebhookEventsService,
     WebhookThrottleGuard,
+    MembersInboundAdapter,
+    MembersOutboundAdapter,
+    MembersChannelService,
   ],
   exports: [
     ChannelAdapterRegistry,
@@ -77,6 +84,8 @@ export class ChannelHubModule implements OnModuleInit {
     private readonly instagramSync: InstagramSyncAdapter,
     private readonly gmailInbound: GmailInboundAdapter,
     private readonly gmailOutbound: GmailOutboundAdapter,
+    private readonly membersInbound: MembersInboundAdapter,
+    private readonly membersOutbound: MembersOutboundAdapter,
   ) {}
 
   onModuleInit() {
@@ -84,6 +93,7 @@ export class ChannelHubModule implements OnModuleInit {
     this.registry.register(this.waOfficialInbound, this.waOfficialOutbound);
     this.registry.register(this.instagramInbound, this.instagramOutbound);
     this.registry.register(this.gmailInbound, this.gmailOutbound);
+    this.registry.register(this.membersInbound, this.membersOutbound);
     this.registry.registerHistorySync(this.zappfySync);
     this.registry.registerHistorySync(this.instagramSync);
   }

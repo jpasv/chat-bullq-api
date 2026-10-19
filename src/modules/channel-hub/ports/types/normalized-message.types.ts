@@ -140,6 +140,22 @@ export interface NormalizedOutboundMessage {
     references?: string;
     subject?: string;
   };
+  /**
+   * Contexto do canal MEMBERS (área de membros). Preenchido pelo
+   * OutboundMessageProcessor a partir da Message + Conversation, então vale
+   * pra qualquer caminho que enfileira `send-outbound` (humano, IA,
+   * chatbot, automação...). Adapters de outros canais ignoram.
+   */
+  membersContext?: {
+    /** Conversation.externalThreadId = id da conversa no members-backend. */
+    conversationExternalId: string;
+    /** Id da Message no chat-bullq (vira `message.id` no callback). */
+    messageId: string;
+    /** Nome de quem respondeu (atendente/agente IA) — sem prefixo no texto. */
+    agentName: string | null;
+    /** ISO 8601. */
+    createdAt: string;
+  };
 }
 
 export interface StatusUpdate {

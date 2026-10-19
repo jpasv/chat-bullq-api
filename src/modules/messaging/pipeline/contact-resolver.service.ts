@@ -282,6 +282,13 @@ function toExternalContactId(
   channelType: ChannelType,
   identifier: { phone?: string; email?: string },
 ): string {
+  if (channelType === ChannelType.MEMBERS) {
+    // A conversa da área de membros nasce no members-backend (handoff) —
+    // não existe "iniciar conversa" a partir do chat-bullq.
+    throw new BadRequestException(
+      'Não é possível iniciar conversa no canal Área de membros.',
+    );
+  }
   if (channelType === ChannelType.GMAIL) {
     if (!identifier.email) {
       throw new BadRequestException(

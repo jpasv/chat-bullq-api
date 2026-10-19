@@ -39,6 +39,10 @@ export class HistoryImportService {
   ): Promise<ConversationImportResult> {
     const contactId = await this.upsertContact(channel, normalized);
 
+    if (normalized.externalThreadId) {
+      return this.importThreadConversation(channel, normalized, contactId);
+    }
+
     const existing = await this.prisma.conversation.findFirst({
       where: {
         organizationId: channel.organizationId,
@@ -97,6 +101,93 @@ export class HistoryImportService {
     return { conversationId: conversation.id, contactId, isNew: true };
   }
 
+  /**
+   * Import idempotente por thread (`(channelId, externalThreadId)`): se a
+   * conversa já existe, só avança `lastMessageAt` (nunca mexe no status —
+   * um re-import não pode fechar/reabrir o que o atendente já tratou).
+   */
+  private async importThreadConversation(
+    channel: Channel,
+    normalized: NormalizedHistoricalConversation,
+    contactId: string,
+  ): Promise<ConversationImportResult> {
+    const externalThreadId = normalized.externalThreadId!;
+    const existing = await this.prisma.conversation.findUnique({
+      where: {
+        uq_conv_channel_thread: { channelId: channel.id, externalThreadId },
+      },
+    });
+
+    if (existing) {
+      if (
+        normalized.lastMessageAt &&
+        (!existing.lastMessageAt ||
+          normalized.lastMessageAt > existing.lastMessageAt)
+      ) {
+        await this.prisma.conversation.update({
+          where: { id: existing.id },
+          data: { lastMessageAt: normalized.lastMessageAt },
+        });
+      }
+      return { conversationId: existing.id, contactId: existing.contactId, isNew: false };
+    }
+
+    const status =
+      normalized.status ??
+      ((normalized.unreadCount ?? 0) > 0
+        ? ConversationStatus.PENDING
+        : ConversationStatus.OPEN);
+    const isClosed = status === ConversationStatus.CLOSED;
+
+    try {
+      const conversation = await this.prisma.conversation.create({
+        data: {
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          contactId,
+          externalThreadId,
+          status,
+          protocol: this.generateProtocol(),
+          isGroup: false,
+          lastMessageAt: normalized.lastMessageAt,
+          closedAt: isClosed
+            ? (normalized.closedAt ?? normalized.lastMessageAt ?? new Date())
+            : null,
+          ...(normalized.startedAt ? { createdAt: normalized.startedAt } : {}),
+          metadata: {
+            ...(normalized.metadata ?? {}),
+            imported: true,
+            externalConversationId: normalized.externalConversationId,
+          } as any,
+        },
+      });
+
+      await this.prisma.conversationAuditLog.create({
+        data: {
+          conversationId: conversation.id,
+          action: 'CREATED',
+          toValue: status,
+          metadata: { source: 'history_import' },
+        },
+      });
+
+      return { conversationId: conversation.id, contactId, isNew: true };
+    } catch (err: any) {
+      // Corrida com um webhook/import concorrente do mesmo thread.
+      if (err?.code === 'P2002') {
+        const racer = await this.prisma.conversation.findUnique({
+          where: {
+            uq_conv_channel_thread: { channelId: channel.id, externalThreadId },
+          },
+        });
+        if (racer) {
+          return { conversationId: racer.id, contactId: racer.contactId, isNew: false };
+        }
+      }
+      throw err;
+    }
+  }
+
   async importMessages(
     channel: Channel,
     conversationId: string,
@@ -138,6 +229,7 @@ export class HistoryImportService {
         deliveredAt: m.direction === MessageDirection.INBOUND ? m.timestamp : null,
         createdAt: m.timestamp,
         metadata: {
+          ...(m.metadata ? JSON.parse(JSON.stringify(m.metadata)) : {}),
           imported: true,
           rawPayload: m.rawPayload ? JSON.parse(JSON.stringify(m.rawPayload)) : null,
         },
@@ -150,8 +242,13 @@ export class HistoryImportService {
       new Date(0),
     );
     if (latestTimestamp.getTime() > 0) {
-      await this.prisma.conversation.update({
-        where: { id: conversationId },
+      // Nunca regride: um import de histórico antigo não pode rebaixar uma
+      // conversa que já teve atividade mais recente.
+      await this.prisma.conversation.updateMany({
+        where: {
+          id: conversationId,
+          OR: [{ lastMessageAt: null }, { lastMessageAt: { lt: latestTimestamp } }],
+        },
         data: { lastMessageAt: latestTimestamp },
       });
     }
@@ -188,6 +285,17 @@ export class HistoryImportService {
     });
 
     if (existing) {
+      if (normalized.contactMetadata) {
+        await this.prisma.contact.update({
+          where: { id: existing.contactId },
+          data: {
+            metadata: {
+              ...((existing.contact.metadata as Record<string, unknown>) ?? {}),
+              ...normalized.contactMetadata,
+            } as any,
+          },
+        });
+      }
       const updates: Record<string, any> = {};
       if (normalized.contactName && normalized.contactName !== existing.profileName) {
         updates.profileName = normalized.contactName;
@@ -212,7 +320,11 @@ export class HistoryImportService {
         organizationId: channel.organizationId,
         name: normalized.contactName,
         phone: normalized.contactPhone,
+        email: normalized.contactEmail,
         avatarUrl: normalized.contactAvatarUrl,
+        ...(normalized.contactMetadata
+          ? { metadata: normalized.contactMetadata as any }
+          : {}),
         channels: {
           create: {
             channelId: channel.id,

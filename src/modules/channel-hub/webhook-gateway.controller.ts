@@ -21,6 +21,7 @@ import { ChannelAdapterRegistry } from './channel-adapter.registry';
 import { ChannelsService } from './channels/channels.service';
 import { WebhookEventsService } from './webhook-events.service';
 import { WebhookThrottleGuard } from './webhook-throttle.guard';
+import { MembersChannelService } from './adapters/members/members-channel.service';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -32,6 +33,7 @@ export class WebhookGatewayController {
     private readonly registry: ChannelAdapterRegistry,
     private readonly channelsService: ChannelsService,
     private readonly webhookEvents: WebhookEventsService,
+    private readonly members: MembersChannelService,
     @InjectQueue('inbound-messages') private readonly inboundQueue: Queue,
   ) {}
 
@@ -53,6 +55,18 @@ export class WebhookGatewayController {
     const adapter = this.registry.getInbound(channelType);
     const headers = req.headers as Record<string, string>;
     const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
+
+    // Área de membros tem contrato próprio: 401/404/400 + `{ok:true}` e o
+    // evento `handoff` (nota interna) além de mensagens.
+    if (channelType === ChannelType.MEMBERS) {
+      try {
+        const result = await this.members.receiveWebhook(headers, rawBody, req.body);
+        return res.status(result.status).json(result.body);
+      } catch (err: any) {
+        this.logger.error(`Members webhook failed: ${err?.message ?? err}`, err?.stack);
+        return res.status(500).json({ ok: false, error: 'internal_error' });
+      }
+    }
 
     // 1. Identify candidate channels from the payload (one payload CAN contain
     //    multiple locators — WA Official batches per businessAccountId).
