@@ -339,6 +339,36 @@ describe('MembersChannelService — handoff event', () => {
     expect(db.contacts).toHaveLength(1);
     expect(db.contacts[0]).toMatchObject({ name: 'Ana Souza', email: 'ana2@x.com' });
   });
+
+  it('stores the member avatar on create and updates it when it changes', async () => {
+    const { service, db } = build();
+    const withAvatar = {
+      ...handoffEvent,
+      contact: { ...handoffEvent.contact, avatarUrl: 'https://cdn.x/a.png' },
+    };
+    const s1 = signed(withAvatar);
+    await service.receiveWebhook(s1.headers, s1.raw, withAvatar);
+    expect(db.contacts[0]).toMatchObject({ avatarUrl: 'https://cdn.x/a.png' });
+    expect(db.contactChannels[0]).toMatchObject({ profileAvatarUrl: 'https://cdn.x/a.png' });
+
+    const changed = {
+      ...withAvatar,
+      contact: { ...withAvatar.contact, avatarUrl: 'https://cdn.x/b.png' },
+      handoff: { ...handoffEvent.handoff, timestamp: '2026-10-23T09:00:00.000Z' },
+    };
+    const s2 = signed(changed);
+    await service.receiveWebhook(s2.headers, s2.raw, changed);
+    expect(db.contacts[0]).toMatchObject({ avatarUrl: 'https://cdn.x/b.png' });
+    expect(db.contactChannels[0]).toMatchObject({ profileAvatarUrl: 'https://cdn.x/b.png' });
+  });
+
+  it('rejects a non-http avatarUrl', async () => {
+    const { service } = build();
+    const bad = { ...handoffEvent, contact: { ...handoffEvent.contact, avatarUrl: 'javascript:alert(1)' } };
+    const s = signed(bad);
+    const res = await service.receiveWebhook(s.headers, s.raw, bad);
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('MembersChannelService — message event', () => {

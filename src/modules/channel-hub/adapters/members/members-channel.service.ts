@@ -229,12 +229,14 @@ export class MembersChannelService {
               name: contact.name ?? undefined,
               email: contact.email ?? undefined,
               phone: contact.phone ?? undefined,
+              avatarUrl: contact.avatarUrl ?? undefined,
               metadata: tenantMetadata(conversation) as Prisma.InputJsonValue,
               channels: {
                 create: {
                   channelId: channel.id,
                   externalId,
                   profileName: contact.name ?? undefined,
+                  profileAvatarUrl: contact.avatarUrl ?? undefined,
                 },
               },
             },
@@ -251,6 +253,7 @@ export class MembersChannelService {
     if (contact.name && contact.name !== current.name) updates.name = contact.name;
     if (contact.email && contact.email !== current.email) updates.email = contact.email;
     if (contact.phone && contact.phone !== current.phone) updates.phone = contact.phone;
+    if (contact.avatarUrl && contact.avatarUrl !== current.avatarUrl) updates.avatarUrl = contact.avatarUrl;
     const currentMeta = (current.metadata ?? {}) as Record<string, unknown>;
     const nextMeta = { ...currentMeta, ...tenantMetadata(conversation) };
     if (JSON.stringify(nextMeta) !== JSON.stringify(currentMeta)) {
@@ -259,11 +262,13 @@ export class MembersChannelService {
     if (Object.keys(updates).length > 0) {
       await this.prisma.contact.update({ where: { id: current.id }, data: updates });
     }
-    if (contact.name && contact.name !== existing.profileName) {
-      await this.prisma.contactChannel.update({
-        where: { id: existing.id },
-        data: { profileName: contact.name },
-      });
+    const channelUpdates: Prisma.ContactChannelUpdateInput = {};
+    if (contact.name && contact.name !== existing.profileName) channelUpdates.profileName = contact.name;
+    if (contact.avatarUrl && contact.avatarUrl !== existing.profileAvatarUrl) {
+      channelUpdates.profileAvatarUrl = contact.avatarUrl;
+    }
+    if (Object.keys(channelUpdates).length > 0) {
+      await this.prisma.contactChannel.update({ where: { id: existing.id }, data: channelUpdates });
     }
     return existing.contactId;
   }

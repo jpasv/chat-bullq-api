@@ -26,6 +26,8 @@ export interface MembersContact {
   name: string | null;
   email: string | null;
   phone: string | null;
+  /** Foto do perfil na área de membros (URL pública). Opcional. */
+  avatarUrl?: string | null;
 }
 
 export interface MembersHandoff {
@@ -115,8 +117,11 @@ function checkContact(v: unknown, path: string): string | null {
   if (!/^(user|email|conv):.+/.test(v.externalId)) {
     return `${path}.externalId must start with user:, email: or conv:`;
   }
-  for (const k of ['name', 'email', 'phone']) {
+  for (const k of ['name', 'email', 'phone', 'avatarUrl']) {
     if (!isNullableString(v[k])) return `${path}.${k} must be string|null`;
+  }
+  if (typeof v.avatarUrl === 'string' && v.avatarUrl && !/^https?:\/\//i.test(v.avatarUrl)) {
+    return `${path}.avatarUrl must be an http(s) URL`;
   }
   return null;
 }
