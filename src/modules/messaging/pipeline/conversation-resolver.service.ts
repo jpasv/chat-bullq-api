@@ -17,6 +17,12 @@ export interface ResolvedConversation {
 export interface ThreadResolveOpts {
   externalThreadId?: string;
   subject?: string;
+  /**
+   * MEMBERS: 1 conversa por CONTATO no canal. `externalThreadId` deixa de ser
+   * a chave e vira só o ponteiro pro thread mais recente do provider (usado
+   * pelos callbacks de saída) — é sobrescrito a cada evento.
+   */
+  contactScoped?: boolean;
 }
 
 const OPEN_STATES = [
@@ -45,6 +51,9 @@ export class ConversationResolverService {
     // Path thread-based (só o GMAIL passa externalThreadId): 1 conversa por
     // thread de email. Isolado aqui — canais de chat seguem o path abaixo
     // idêntico ao que sempre foi.
+    if (opts?.externalThreadId && opts.contactScoped) {
+      return this.resolveByContactThread(organizationId, channelId, contactId, opts);
+    }
     if (opts?.externalThreadId) {
       return this.resolveByThread(organizationId, channelId, contactId, opts);
     }
@@ -213,6 +222,137 @@ export class ConversationResolverService {
         };
       },
     );
+  }
+
+  /**
+   * Canais de 1 conversa por contato com ponteiro de thread (MEMBERS):
+   *  - conversa = a mais recente do contato no canal (por lastMessageAt,
+   *    qualquer status); cria só se não existir;
+   *  - CLOSED → PENDING (sem janela de 24h, igual ao path de thread);
+   *  - `externalThreadId` passa a apontar pro thread do evento (o mais
+   *    recente do provider).
+   * Se outra conversa do canal já segura esse thread id (dados anteriores ao
+   * merge por contato): sendo do mesmo contato, é ELA a conversa (evita
+   * espalhar o mesmo thread em duas); sendo de outro contato, o ponteiro é
+   * liberado lá antes de ser gravado aqui — o unique nunca é violado.
+   */
+  private async resolveByContactThread(
+    organizationId: string,
+    channelId: string,
+    contactId: string,
+    opts: ThreadResolveOpts,
+  ): Promise<ResolvedConversation> {
+    const externalThreadId = opts.externalThreadId!;
+
+    const fast = await this.findLatestForContact(channelId, contactId);
+    if (fast && fast.externalThreadId === externalThreadId && this.isOpen(fast.status)) {
+      return this.touchOpen(fast);
+    }
+
+    return this.idempotency.withLock(
+      `conv:${channelId}:${contactId}`,
+      async () => {
+        const holder = await this.findByThread(channelId, externalThreadId);
+        const target =
+          holder && holder.contactId === contactId && !holder.deletedAt
+            ? holder
+            : await this.findLatestForContact(channelId, contactId);
+
+        if (holder && holder.id !== target?.id) {
+          await this.prisma.conversation.update({
+            where: { id: holder.id },
+            data: { externalThreadId: null },
+          });
+          this.logger.warn(
+            `Thread ${externalThreadId} moved from conversation ${holder.id} (contact ${holder.contactId}) to contact ${contactId}`,
+          );
+        }
+
+        if (!target) {
+          const protocol = this.generateProtocol();
+          const conversation = await this.prisma.conversation.create({
+            data: {
+              organizationId,
+              channelId,
+              contactId,
+              externalThreadId,
+              subject: opts.subject ?? null,
+              status: ConversationStatus.PENDING,
+              protocol,
+              isGroup: false,
+            },
+          });
+          await this.prisma.conversationAuditLog.create({
+            data: {
+              conversationId: conversation.id,
+              action: 'CREATED',
+              toValue: ConversationStatus.PENDING,
+            },
+          });
+          this.logger.log(
+            `New contact conversation: ${conversation.id} (thread: ${externalThreadId})`,
+          );
+          return {
+            conversationId: conversation.id,
+            status: ConversationStatus.PENDING,
+            isNew: true,
+            wasReopened: false,
+          };
+        }
+
+        const threadChanged = target.externalThreadId !== externalThreadId;
+
+        if (!this.isOpen(target.status)) {
+          await this.prisma.conversation.update({
+            where: { id: target.id },
+            data: {
+              status: ConversationStatus.PENDING,
+              closedAt: null,
+              assignedToId: null,
+              ...(threadChanged ? { externalThreadId } : {}),
+            },
+          });
+          await this.prisma.conversationAuditLog.create({
+            data: {
+              conversationId: target.id,
+              action: 'REOPENED',
+              fromValue: target.status,
+              toValue: ConversationStatus.PENDING,
+              metadata: { trigger: 'new_inbound_message', externalThreadId },
+            },
+          });
+          this.logger.log(`Contact conversation reopened: ${target.id} (thread: ${externalThreadId})`);
+          return {
+            conversationId: target.id,
+            status: ConversationStatus.PENDING,
+            isNew: false,
+            wasReopened: true,
+          };
+        }
+
+        if (threadChanged) {
+          await this.prisma.conversation.update({
+            where: { id: target.id },
+            data: { externalThreadId },
+          });
+        }
+        return this.touchOpen(target);
+      },
+    );
+  }
+
+  /**
+   * Conversa mais recente do contato no canal (qualquer status) — por
+   * `lastMessageAt` (nulls por último), desempate por `createdAt`.
+   */
+  findLatestForContact(channelId: string, contactId: string) {
+    return this.prisma.conversation.findFirst({
+      where: { channelId, contactId, deletedAt: null },
+      orderBy: [
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+      ],
+    });
   }
 
   /**

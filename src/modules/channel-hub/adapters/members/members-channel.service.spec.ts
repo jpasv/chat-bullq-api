@@ -3,6 +3,7 @@ import { ChannelType, ConversationStatus } from '@prisma/client';
 import { MembersChannelService } from './members-channel.service';
 import { MembersInboundAdapter } from './members.inbound-adapter';
 import { HistoryImportService } from '../../../messaging/pipeline/history-import.service';
+import { ConversationResolverService } from '../../../messaging/pipeline/conversation-resolver.service';
 
 const SECRET = 'whsec_test_123';
 const CHANNEL = {
@@ -77,6 +78,22 @@ function fakePrisma() {
         }
         return conversations.find((c) => c.id === where.id) ?? null;
       }),
+      findFirst: jest.fn(async ({ where }: any) => {
+        const rows = conversations
+          .filter(
+            (c) =>
+              c.channelId === where.channelId &&
+              c.contactId === where.contactId &&
+              (where.deletedAt !== null || !c.deletedAt),
+          )
+          .sort((a, b) => {
+            const la = a.lastMessageAt ? a.lastMessageAt.getTime() : -Infinity;
+            const lb = b.lastMessageAt ? b.lastMessageAt.getTime() : -Infinity;
+            if (la !== lb) return lb - la;
+            return b.createdAt.getTime() - a.createdAt.getTime();
+          });
+        return rows[0] ?? null;
+      }),
       create: jest.fn(async ({ data }: any) => {
         if (
           conversations.some(
@@ -85,17 +102,45 @@ function fakePrisma() {
         ) {
           throw p2002();
         }
-        const conv = { id: id('conv'), metadata: {}, lastMessageAt: null, ...data };
+        const conv = {
+          id: id('conv'),
+          metadata: {},
+          lastMessageAt: null,
+          deletedAt: null,
+          assignedToId: null,
+          createdAt: new Date(),
+          ...data,
+        };
         conversations.push(conv);
         return conv;
       }),
       update: jest.fn(async ({ where, data }: any) => {
         const c = conversations.find((x) => x.id === where.id);
-        Object.assign(c, data);
+        const { assignedTo, ...rest } = data;
+        if (
+          rest.externalThreadId &&
+          conversations.some(
+            (o) => o.id !== c.id && o.channelId === c.channelId && o.externalThreadId === rest.externalThreadId,
+          )
+        ) {
+          throw p2002();
+        }
+        Object.assign(c, rest);
+        if (assignedTo?.disconnect) c.assignedToId = null;
         return c;
       }),
       updateMany: jest.fn(async ({ where, data }: any) => {
-        const c = conversations.find((x) => x.id === where.id);
+        // Suporta o guard "nunca regride": OR [{lastMessageAt: null}, {lastMessageAt: {lt}}].
+        const c = conversations.find(
+          (x) =>
+            x.id === where.id &&
+            (!where.OR ||
+              where.OR.some((cond: any) =>
+                cond.lastMessageAt === null
+                  ? x.lastMessageAt == null
+                  : x.lastMessageAt != null && x.lastMessageAt < cond.lastMessageAt.lt,
+              )),
+        );
         if (c) Object.assign(c, data);
         return { count: c ? 1 : 0 };
       }),
@@ -134,34 +179,14 @@ function fakePrisma() {
     },
     internalNote: { create: jest.fn(async ({ data }: any) => notes.push(data)) },
   };
-  return { prisma, contacts, contactChannels, conversations, messages, notes };
+  return { prisma, contacts, contactChannels, conversations, messages, notes, audit };
 }
 
 function build() {
   const db = fakePrisma();
   const idempotency = { withLock: jest.fn((_k: string, fn: () => any) => fn()) };
-  const conversationResolver = {
-    resolve: jest.fn(async (_org: string, channelId: string, contactId: string, _g: boolean, opts: any) => {
-      const existing = db.conversations.find(
-        (c) => c.channelId === channelId && c.externalThreadId === opts.externalThreadId,
-      );
-      if (existing) {
-        const wasReopened = existing.status === ConversationStatus.CLOSED;
-        if (wasReopened) existing.status = ConversationStatus.PENDING;
-        return { conversationId: existing.id, status: existing.status, isNew: false, wasReopened };
-      }
-      const conv = await db.prisma.conversation.create({
-        data: {
-          organizationId: 'org_1',
-          channelId,
-          contactId,
-          externalThreadId: opts.externalThreadId,
-          status: ConversationStatus.PENDING,
-        },
-      });
-      return { conversationId: conv.id, status: conv.status, isNew: true, wasReopened: false };
-    }),
-  };
+  const conversationResolver = new ConversationResolverService(db.prisma, idempotency as any);
+  jest.spyOn(conversationResolver, 'resolve');
   const realtime = { emitToChannel: jest.fn(), emitToConversation: jest.fn() };
   const historyImport = new HistoryImportService(db.prisma, realtime as any);
   const webhookEvents = {
@@ -252,7 +277,7 @@ describe('MembersChannelService — handoff event', () => {
       CHANNEL.id,
       db.contacts[0].id,
       false,
-      { externalThreadId: 'sc_1' },
+      { externalThreadId: 'sc_1', contactScoped: true },
     );
     expect(db.conversations[0].metadata).toMatchObject({ membersTenantName: 'Escola X' });
 
@@ -433,5 +458,186 @@ describe('MembersChannelService.receiveImport', () => {
     expect((await service.receiveImport(s.headers, s.raw, big)).status).toBe(400);
     const bad = signed(batch, CHANNEL.id, 'wrong');
     expect((await service.receiveImport(bad.headers, bad.raw, batch)).status).toBe(401);
+  });
+});
+
+describe('MembersChannelService — 1 conversa por contato', () => {
+  const handoffOn = (convId: string, timestamp: string) => ({
+    ...handoffEvent,
+    conversation: { ...handoffEvent.conversation, id: convId },
+    handoff: { ...handoffEvent.handoff, timestamp },
+  });
+
+  it('reuses the contact conversation for a new members conversation and moves externalThreadId', async () => {
+    const { service, db } = build();
+    const e1 = handoffOn('sc_1', '2026-10-19T12:00:00.000Z');
+    const s1 = signed(e1);
+    await service.receiveWebhook(s1.headers, s1.raw, e1);
+    db.conversations[0].status = ConversationStatus.CLOSED;
+    db.conversations[0].assignedToId = 'u_1';
+
+    const e2 = handoffOn('sc_2', '2026-10-20T08:00:00.000Z');
+    const s2 = signed(e2);
+    await service.receiveWebhook(s2.headers, s2.raw, e2);
+
+    expect(db.conversations).toHaveLength(1);
+    expect(db.conversations[0]).toMatchObject({
+      externalThreadId: 'sc_2',
+      status: ConversationStatus.PENDING,
+      closedAt: null,
+      assignedToId: null,
+      metadata: expect.objectContaining({
+        membersConversationIds: ['sc_1', 'sc_2'],
+        membersLastActivityAt: '2026-10-20T08:00:00.000Z',
+      }),
+    });
+    expect(db.messages.filter((m) => m.type === 'SYSTEM')).toHaveLength(2);
+
+    // message event de uma 3ª conversa do members → mesma conversa, novo ponteiro.
+    const msg = {
+      event: 'message',
+      conversation: { id: 'sc_3', tenantId: null, tenantName: null },
+      contact: handoffEvent.contact,
+      message: { id: 'sm_9', text: 'oi de novo', timestamp: '2026-10-21T09:00:00.000Z' },
+    };
+    const s3 = signed(msg);
+    await service.receiveWebhook(s3.headers, s3.raw, msg);
+    expect(db.conversations).toHaveLength(1);
+    expect(db.conversations[0].externalThreadId).toBe('sc_3');
+  });
+
+  it('pre-merge data: an event for a thread held by an older conversation of the contact uses it (no unique violation)', async () => {
+    const { service, db } = build();
+    const e1 = handoffOn('sc_a', '2026-10-01T12:00:00.000Z');
+    const s1 = signed(e1);
+    await service.receiveWebhook(s1.headers, s1.raw, e1);
+    // Duplicata legada (criada pelo modelo antigo: 1 conversa por thread).
+    db.conversations.push({
+      id: 'conv_legacy',
+      channelId: CHANNEL.id,
+      organizationId: 'org_1',
+      contactId: db.contacts[0].id,
+      externalThreadId: 'sc_b',
+      status: ConversationStatus.OPEN,
+      lastMessageAt: new Date('2026-10-10T00:00:00.000Z'),
+      createdAt: new Date('2026-10-10T00:00:00.000Z'),
+      metadata: {},
+      deletedAt: null,
+    });
+    const e2 = handoffOn('sc_a', '2026-10-15T12:00:00.000Z');
+    const s2 = signed(e2);
+    const res = await service.receiveWebhook(s2.headers, s2.raw, e2);
+    expect(res.status).toBe(200);
+    expect(db.conversations).toHaveLength(2);
+    expect(db.conversations.map((c) => c.externalThreadId).sort()).toEqual(['sc_a', 'sc_b']);
+    expect(db.messages.filter((m) => m.type === 'SYSTEM')).toHaveLength(2);
+    expect(db.messages.every((m) => m.conversationId === db.conversations[0].id)).toBe(true);
+  });
+
+  const item = (over: Record<string, any>) => ({
+    conversation: { id: 'sc_x', tenantId: 't_1', tenantName: 'Escola X' },
+    contact: { externalId: 'user:99', name: 'Duda', email: null, phone: null },
+    status: 'CLOSED',
+    startedAt: '2026-01-01T10:00:00.000Z',
+    lastMessageAt: '2026-01-01T10:30:00.000Z',
+    handoff: null,
+    messages: [],
+    ...over,
+  });
+  const older = item({
+    conversation: { id: 'sc_jan', tenantId: 't_1', tenantName: 'Escola X' },
+    status: 'CLOSED',
+    startedAt: '2026-01-01T10:00:00.000Z',
+    lastMessageAt: '2026-01-01T10:30:00.000Z',
+    handoff: { reason: null, transcript: 'Membro: oi', timestamp: '2026-01-01T10:05:00.000Z' },
+    messages: [
+      { id: 'j1', direction: 'INBOUND', sender: 'member', text: 'oi', timestamp: '2026-01-01T10:00:00.000Z' },
+      { id: 'j2', direction: 'OUTBOUND', sender: 'agent', text: 'ok', timestamp: '2026-01-01T10:30:00.000Z' },
+    ],
+  });
+  const newer = item({
+    conversation: { id: 'sc_oct', tenantId: 't_1', tenantName: 'Escola X' },
+    status: 'OPEN',
+    startedAt: '2026-10-18T10:00:00.000Z',
+    lastMessageAt: '2026-10-18T10:10:00.000Z',
+    handoff: { reason: 'x', transcript: 'Membro: socorro', timestamp: '2026-10-18T10:01:00.000Z' },
+    messages: [
+      { id: 'o1', direction: 'INBOUND', sender: 'member', text: 'socorro', timestamp: '2026-10-18T10:10:00.000Z' },
+    ],
+  });
+
+  it.each([
+    ['older first', [older, newer]],
+    ['newer first', [newer, older]],
+  ])('import merges two members conversations of one contact into one (%s)', async (_label, convs) => {
+    const { service, db } = build();
+    const body = { conversations: convs };
+    const { raw, headers } = signed(body);
+    const res = await service.receiveImport(headers, raw, body);
+    expect(res).toEqual({ status: 200, body: { ok: true, imported: 2, skipped: 0 } });
+
+    expect(db.conversations).toHaveLength(1);
+    const conv = db.conversations[0];
+    expect(conv).toMatchObject({
+      externalThreadId: 'sc_oct',
+      status: ConversationStatus.PENDING,
+      lastMessageAt: new Date('2026-10-18T10:10:00.000Z'),
+      createdAt: new Date('2026-01-01T10:00:00.000Z'),
+    });
+    expect(conv.closedAt ?? null).toBeNull();
+    expect([...conv.metadata.membersConversationIds].sort()).toEqual(['sc_jan', 'sc_oct']);
+    expect(conv.metadata.membersLastActivityAt).toBe('2026-10-18T10:10:00.000Z');
+    expect(
+      db.messages
+        .filter((m) => m.type !== 'SYSTEM')
+        .map((m) => m.externalId)
+        .sort(),
+    ).toEqual(['j1', 'j2', 'o1']);
+    expect(db.messages.filter((m) => m.type === 'SYSTEM')).toHaveLength(2);
+    expect(db.messages.every((m) => m.conversationId === conv.id)).toBe(true);
+
+    // Re-import: nada novo.
+    const again = await service.receiveImport(headers, raw, body);
+    expect(again).toEqual({ status: 200, body: { ok: true, imported: 0, skipped: 2 } });
+    expect(db.conversations).toHaveLength(1);
+    expect(db.messages).toHaveLength(5);
+  });
+
+  it('import reopens a CLOSED contact conversation for a new OPEN item, but a re-import never reopens', async () => {
+    const { service, db } = build();
+    const b1 = { conversations: [older] };
+    const s1 = signed(b1);
+    await service.receiveImport(s1.headers, s1.raw, b1);
+    expect(db.conversations[0].status).toBe(ConversationStatus.CLOSED);
+
+    const b2 = { conversations: [newer] };
+    const s2 = signed(b2);
+    await service.receiveImport(s2.headers, s2.raw, b2);
+    expect(db.conversations).toHaveLength(1);
+    expect(db.conversations[0].status).toBe(ConversationStatus.PENDING);
+
+    db.conversations[0].status = ConversationStatus.CLOSED; // atendente encerrou
+    await service.receiveImport(s2.headers, s2.raw, b2);
+    expect(db.conversations[0].status).toBe(ConversationStatus.CLOSED);
+  });
+
+  it('import of an older members conversation keeps the newest externalThreadId and lastMessageAt', async () => {
+    const { service, db } = build();
+    const live = {
+      ...handoffEvent,
+      conversation: { id: 'sc_live', tenantId: 't_1', tenantName: 'Escola X' },
+      contact: older.contact,
+      handoff: { ...handoffEvent.handoff, timestamp: '2026-10-19T12:00:00.000Z' },
+    };
+    const s1 = signed(live);
+    await service.receiveWebhook(s1.headers, s1.raw, live);
+
+    const b = { conversations: [older] };
+    const s2 = signed(b);
+    await service.receiveImport(s2.headers, s2.raw, b);
+    expect(db.conversations).toHaveLength(1);
+    expect(db.conversations[0].externalThreadId).toBe('sc_live');
+    expect(db.conversations[0].lastMessageAt).toEqual(new Date('2026-10-19T12:00:00.000Z'));
+    expect(db.conversations[0].status).toBe(ConversationStatus.PENDING);
   });
 });

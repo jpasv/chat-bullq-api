@@ -193,6 +193,8 @@ export class InboundMessageProcessor extends WorkerHost {
           ? {
               externalThreadId: message.threadExternalId,
               subject: message.subject,
+              // MEMBERS: 1 conversa por contato; o thread é só ponteiro.
+              contactScoped: message.channelType === ChannelType.MEMBERS,
             }
           : undefined,
       );

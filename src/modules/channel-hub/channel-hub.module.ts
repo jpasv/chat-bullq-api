@@ -22,6 +22,7 @@ import { GmailOutboundAdapter } from './adapters/gmail/gmail.outbound-adapter';
 import { MembersInboundAdapter } from './adapters/members/members.inbound-adapter';
 import { MembersOutboundAdapter } from './adapters/members/members.outbound-adapter';
 import { MembersChannelService } from './adapters/members/members-channel.service';
+import { MembersContactMergeService } from './adapters/members/members-contact-merge.service';
 import { MembersWebhookController } from './adapters/members/members-webhook.controller';
 import { ChannelSyncOrchestrator } from './sync/channel-sync.orchestrator';
 import { ChannelSyncProcessor } from './sync/channel-sync.processor';
@@ -60,6 +61,7 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
     MembersInboundAdapter,
     MembersOutboundAdapter,
     MembersChannelService,
+    MembersContactMergeService,
   ],
   exports: [
     ChannelAdapterRegistry,

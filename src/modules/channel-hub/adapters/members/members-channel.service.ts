@@ -51,8 +51,9 @@ const INBOUND_JOB_OPTS = {
  *  - códigos HTTP do contrato (401 assinatura / 404 canal / 400 corpo);
  *  - contato por `(channelId, contact.externalId)` com nome/email/telefone e
  *    `metadata.membersTenantName`;
- *  - conversa por `(channelId, externalThreadId = conversation.id)`, reabrindo
- *    CLOSED → PENDING;
+ *  - 1 conversa por CONTATO no canal (a mais recente, qualquer status),
+ *    reabrindo CLOSED → PENDING; `externalThreadId` = id da conversa mais
+ *    recente no members (destino dos callbacks de saída);
  *  - evento `handoff` → nota interna (idempotente por conversa + timestamp);
  *  - evento `message` → pipeline inbound normal (fila `inbound-messages`);
  *  - import de histórico (`/webhooks/MEMBERS/import`).
@@ -101,10 +102,14 @@ export class MembersChannelService {
       event.contact,
       event.conversation,
     );
+    const eventAt = new Date(
+      event.event === 'handoff' ? event.handoff!.timestamp : event.message!.timestamp,
+    );
     const conv = await this.resolveConversation(
       channel,
       contactId,
       event.conversation,
+      eventAt,
     );
 
     if (event.event === 'handoff') {
@@ -164,7 +169,7 @@ export class MembersChannelService {
 
   // ─── Internals ───────────────────────────────────────────────
 
-  private async authenticate(
+  async authenticate(
     headers: Record<string, string>,
     rawBody: Buffer,
   ): Promise<{ channel: Channel } | MembersHttpResult> {
@@ -263,33 +268,50 @@ export class MembersChannelService {
     return existing.contactId;
   }
 
-  /** Conversa por thread; CLOSED → PENDING (reabre). Grava tenant na metadata. */
+  /**
+   * Conversa do contato (1 por contato no canal); CLOSED → PENDING (reabre);
+   * `externalThreadId` passa a ser o id desta conversa do members. Grava
+   * tenant + rastreio dos ids do members na metadata.
+   */
   private async resolveConversation(
     channel: Channel,
     contactId: string,
     ref: MembersConversationRef,
+    eventAt: Date,
   ) {
     const resolved = await this.conversationResolver.resolve(
       channel.organizationId,
       channel.id,
       contactId,
       false,
-      { externalThreadId: ref.id },
+      { externalThreadId: ref.id, contactScoped: true },
     );
-    await this.mergeConversationMetadata(resolved.conversationId, ref);
+    await this.mergeConversationMetadata(resolved.conversationId, ref, eventAt);
     return resolved;
   }
 
   private async mergeConversationMetadata(
     conversationId: string,
     ref: MembersConversationRef,
+    eventAt: Date,
   ): Promise<void> {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { metadata: true },
+      select: { metadata: true, externalThreadId: true },
     });
     const current = (conv?.metadata ?? {}) as Record<string, unknown>;
-    const next = { ...current, ...tenantMetadata(ref) };
+    const next: Record<string, unknown> = {
+      ...current,
+      ...tenantMetadata(ref),
+      membersConversationIds: appendMembersId(
+        seenMembersIds(current, conv?.externalThreadId ?? null),
+        ref.id,
+      ),
+    };
+    const known = parseDate(current.membersLastActivityAt);
+    if (!Number.isNaN(eventAt.getTime()) && (!known || eventAt > known)) {
+      next.membersLastActivityAt = eventAt.toISOString();
+    }
     if (JSON.stringify(next) === JSON.stringify(current)) return;
     await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -370,29 +392,22 @@ export class MembersChannelService {
     return true;
   }
 
-  /** @returns true quando algo foi gravado (conversa nova, msgs novas ou nota). */
+  /**
+   * Import de UMA conversa do members, mesclada na conversa do contato
+   * (1 por contato no canal).
+   *
+   * @returns true quando algo foi gravado (conversa nova, conversa do
+   * members ainda não vista, msgs novas ou nota).
+   */
   private async importOne(
     channel: Channel,
     item: MembersImportConversation,
   ): Promise<boolean> {
     const contactId = await this.upsertContact(channel, item.contact, item.conversation);
-    const lastMessageAt = new Date(item.lastMessageAt);
-    const isClosed = item.status === 'CLOSED';
-
-    const conv = await this.historyImport.importConversation(channel, {
-      externalConversationId: item.conversation.id,
-      externalThreadId: item.conversation.id,
-      externalContactId: item.contact.externalId,
-      contactName: item.contact.name ?? undefined,
-      contactPhone: item.contact.phone ?? undefined,
-      contactEmail: item.contact.email ?? undefined,
-      lastMessageAt,
-      startedAt: new Date(item.startedAt),
-      // "OPEN" no members = aguardando atendente → PENDING (fila) aqui.
-      status: isClosed ? ConversationStatus.CLOSED : ConversationStatus.PENDING,
-      closedAt: isClosed ? lastMessageAt : undefined,
-      metadata: tenantMetadata(item.conversation),
-    });
+    const conv = await this.idempotency.withLock(
+      `conv:${channel.id}:${contactId}`,
+      () => this.upsertImportedConversation(channel, contactId, item),
+    );
 
     const messages: NormalizedHistoricalMessage[] = item.messages.map((m) => ({
       externalMessageId: m.id,
@@ -409,7 +424,7 @@ export class MembersChannelService {
             ? 'Bot'
             : 'Atendente'
           : (item.contact.name ?? undefined),
-      metadata: { membersSender: m.sender },
+      metadata: { membersSender: m.sender, membersConversationId: item.conversation.id },
     }));
     const msgs = await this.historyImport.importMessages(
       channel,
@@ -428,8 +443,146 @@ export class MembersChannelService {
         .notifyConversationImported(channel.organizationId, conv.conversationId)
         .catch(() => undefined);
     }
-    return conv.isNew || msgs.imported > 0 || noteCreated;
+    return conv.isNew || conv.newThread || msgs.imported > 0 || noteCreated;
   }
+
+  /**
+   * Localiza/cria a conversa do contato pro item importado:
+   *  - conversa = a que já segura esse thread (mesmo contato) ou a mais
+   *    recente do contato; cria só se não houver nenhuma;
+   *  - `externalThreadId` só muda pra este thread se ele for o de atividade
+   *    mais recente já vista (`metadata.membersLastActivityAt`);
+   *  - item OPEN ainda não visto + conversa CLOSED → reabre como PENDING
+   *    (re-import do mesmo item nunca mexe no status já tratado);
+   *  - `lastMessageAt` nunca regride; `createdAt` = o início mais antigo.
+   */
+  private async upsertImportedConversation(
+    channel: Channel,
+    contactId: string,
+    item: MembersImportConversation,
+  ): Promise<{ conversationId: string; isNew: boolean; newThread: boolean }> {
+    const threadId = item.conversation.id;
+    const lastMessageAt = new Date(item.lastMessageAt);
+    const startedAt = new Date(item.startedAt);
+    const isClosed = item.status === 'CLOSED';
+
+    const holder = await this.prisma.conversation.findUnique({
+      where: { uq_conv_channel_thread: { channelId: channel.id, externalThreadId: threadId } },
+    });
+    const target =
+      holder && holder.contactId === contactId && !holder.deletedAt
+        ? holder
+        : await this.conversationResolver.findLatestForContact(channel.id, contactId);
+
+    if (holder && holder.id !== target?.id) {
+      await this.prisma.conversation.update({
+        where: { id: holder.id },
+        data: { externalThreadId: null },
+      });
+      this.logger.warn(
+        `Members import: thread ${threadId} moved from conversation ${holder.id} (contact ${holder.contactId}) to contact ${contactId}`,
+      );
+    }
+
+    if (!target) {
+      // "OPEN" no members = aguardando atendente → PENDING (fila) aqui.
+      const status = isClosed ? ConversationStatus.CLOSED : ConversationStatus.PENDING;
+      const created = await this.historyImport.importConversation(channel, {
+        externalConversationId: threadId,
+        externalThreadId: threadId,
+        externalContactId: item.contact.externalId,
+        contactName: item.contact.name ?? undefined,
+        contactPhone: item.contact.phone ?? undefined,
+        contactEmail: item.contact.email ?? undefined,
+        lastMessageAt,
+        startedAt,
+        status,
+        closedAt: isClosed ? lastMessageAt : undefined,
+        metadata: {
+          ...tenantMetadata(item.conversation),
+          membersConversationIds: [threadId],
+          membersLastActivityAt: lastMessageAt.toISOString(),
+        },
+      });
+      return { conversationId: created.conversationId, isNew: created.isNew, newThread: true };
+    }
+
+    const meta = (target.metadata ?? {}) as Record<string, unknown>;
+    const seen = seenMembersIds(meta, target.externalThreadId);
+    const alreadySeen = seen.includes(threadId);
+    const knownActivity = parseDate(meta.membersLastActivityAt) ?? target.lastMessageAt;
+    const isLatest = !knownActivity || lastMessageAt > knownActivity;
+
+    const nextMeta: Record<string, unknown> = {
+      ...meta,
+      membersConversationIds: appendMembersId(seen, threadId),
+    };
+    const data: Prisma.ConversationUpdateInput = {};
+    if (isLatest) {
+      Object.assign(nextMeta, tenantMetadata(item.conversation));
+      nextMeta.membersLastActivityAt = lastMessageAt.toISOString();
+      if (target.externalThreadId !== threadId) data.externalThreadId = threadId;
+    }
+    if (JSON.stringify(nextMeta) !== JSON.stringify(meta)) {
+      data.metadata = nextMeta as Prisma.InputJsonValue;
+    }
+    if (!target.lastMessageAt || lastMessageAt > target.lastMessageAt) {
+      data.lastMessageAt = lastMessageAt;
+    }
+    if (startedAt < target.createdAt) data.createdAt = startedAt;
+
+    const reopen = !alreadySeen && !isClosed && target.status === ConversationStatus.CLOSED;
+    if (reopen) {
+      data.status = ConversationStatus.PENDING;
+      data.closedAt = null;
+      data.assignedTo = { disconnect: true };
+    }
+
+    if (Object.keys(data).length > 0) {
+      await this.prisma.conversation.update({ where: { id: target.id }, data });
+    }
+    if (reopen) {
+      await this.prisma.conversationAuditLog.create({
+        data: {
+          conversationId: target.id,
+          action: 'REOPENED',
+          fromValue: ConversationStatus.CLOSED,
+          toValue: ConversationStatus.PENDING,
+          metadata: { trigger: 'history_import', externalThreadId: threadId },
+        },
+      });
+    }
+    return { conversationId: target.id, isNew: false, newThread: !alreadySeen };
+  }
+}
+
+/** Máximo de ids de conversa do members guardados na metadata (rastreio). */
+export const MEMBERS_IDS_CAP = 100;
+
+/** Ids de conversa do members já vistos pela conversa (+ o thread atual). */
+export function seenMembersIds(
+  metadata: Record<string, unknown>,
+  externalThreadId: string | null,
+): string[] {
+  const list = Array.isArray(metadata.membersConversationIds)
+    ? (metadata.membersConversationIds as unknown[]).filter(
+        (x): x is string => typeof x === 'string',
+      )
+    : [];
+  if (externalThreadId && !list.includes(externalThreadId)) list.push(externalThreadId);
+  return list;
+}
+
+/** Acrescenta (se ainda não está) e corta nos mais recentes. */
+export function appendMembersId(list: string[], id: string): string[] {
+  const next = list.includes(id) ? [...list] : [...list, id];
+  return next.slice(-MEMBERS_IDS_CAP);
+}
+
+export function parseDate(v: unknown): Date | null {
+  if (typeof v !== 'string' && !(v instanceof Date)) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function tenantMetadata(ref: MembersConversationRef): Record<string, unknown> {
