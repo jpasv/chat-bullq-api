@@ -80,7 +80,7 @@ export class AgendarDiagnosticoTool implements AiTool {
 
     const snapshot = (lead.snapshot ?? {}) as Record<string, any>;
     const nome = snapshot.name || snapshot.firstName || participantes[0] || 'cliente';
-    const attendees = [...new Set([...emails, this.config.closerEmail])];
+    const attendees = [...new Set([...emails, this.config.closerEmail, ...(this.config.extraAttendees ?? [])])];
 
     try {
       const ev = await this.calendar.create({
