@@ -35,6 +35,10 @@ export const HOPPE_FIELD_NAMES = {
 
 /** Tag do Hoppe que autoriza a abordagem pela IA. */
 export const TRIGGER_TAG = 'abordar-ia';
+/** Lead esperando alguém do time (aprovação pendente, bot do lead etc). */
+export const HUMAN_TAG = 'aguardando-humano';
+/** Retomadas automáticas de quem parou de responder na qualificação. */
+export const MAX_SILENT_FOLLOWUPS = 2;
 
 export const ATIVIDADE = { ATIVO: 'Ativo', INATIVO: 'Inativo' } as const;
 

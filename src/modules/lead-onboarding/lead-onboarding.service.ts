@@ -14,6 +14,8 @@ import {
   HOPPE_FIELD,
   HOPPE_STATUS,
   HOPPE_STATUS_NAME_NOVA,
+  HUMAN_TAG,
+  MAX_SILENT_FOLLOWUPS,
   OnboardingState,
 } from './lead-onboarding.constants';
 import {
@@ -24,6 +26,7 @@ import {
   nextAttemptDelayHours,
   renderAttempt,
   renderResume,
+  renderSilentFollowup,
   revenueAbove500kYear,
   snapshotFromTask,
 } from './onboarding-rules';
@@ -99,7 +102,7 @@ export class LeadOnboardingService {
       if (lead.attempt >= 3) return this.inactivate(lead, now);
       return this.sendAttempt(lead, (lead.attempt + 1) as 2 | 3, now);
     }
-    if (lead.state === 'REPLIED') return this.resume(lead, now);
+    if (lead.state === 'REPLIED') return this.followUp(lead, now);
   }
 
   private async start(lead: OnboardingLead, now: Date): Promise<void> {
@@ -223,30 +226,59 @@ export class LeadOnboardingService {
     );
   }
 
-  /** Retomada única de quem parou no meio do agendamento. */
-  private async resume(lead: OnboardingLead, now: Date): Promise<void> {
-    if (!lead.pendingReason || lead.resumeSentAt || !lead.conversationId || !lead.phone) {
+  /**
+   * Lead parou de responder no meio da qualificação: até 2 retomadas, 24h
+   * depois da última resposta dele e entre elas. Pendência de agendamento
+   * (sócios, horário, e-mail) usa a retomada específica na 1ª. Depois da 2ª
+   * sem resposta, Atividade vira Inativo (status mantido).
+   */
+  private async followUp(lead: OnboardingLead, now: Date): Promise<void> {
+    if (!lead.conversationId || !lead.phone) {
       await this.repo.update(lead.id, { nextActionAt: null });
       return;
     }
     if (await this.deferIfNeeded(lead, now, false)) return;
-    if (await this.blockedByConversation(lead, now)) return;
-    const text = renderResume(lead.pendingReason, this.snapshotOf(lead), lead.pendingDetail);
-    if (!text) {
+    // Bola com o time (humano, aprovação pendente, resposta devida): não cutuca o lead.
+    if (await this.messenger.followupGuard(lead.conversationId)) {
       await this.repo.update(lead.id, { nextActionAt: null });
       return;
     }
+    const done = lead.silentFollowups ?? 0;
+    if (done >= MAX_SILENT_FOLLOWUPS) {
+      await this.repo.update(lead.id, { nextActionAt: null });
+      await this.syncDates(lead, now, null);
+      await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.INATIVO));
+      await this.safe(() =>
+        this.hoppe.addComment(lead.hoppeTaskId, `Sem resposta depois de ${done} retomadas na qualificação. Atividade marcada como Inativo em ${fmt(now)}; status mantido.`),
+      );
+      return;
+    }
+    const n = (done + 1) as 1 | 2;
+    const snapshot = this.snapshotOf(lead);
+    const specific =
+      n === 1 && lead.pendingReason && !lead.resumeSentAt
+        ? renderResume(lead.pendingReason, snapshot, lead.pendingDetail)
+        : null;
     await this.messenger.send({
       target: { digits: lead.phone, jid: `${lead.phone}@s.whatsapp.net` },
       name: null,
       email: null,
-      text,
+      text: specific ?? renderSilentFollowup(n, snapshot),
       conversationId: lead.conversationId,
     });
-    await this.repo.update(lead.id, { resumeSentAt: now, nextActionAt: null });
-    await this.syncDates(lead, now, null);
+    const { start, end } = this.config.sendWindow;
+    const nextActionAt = adjustToSendWindow(new Date(now.getTime() + 24 * HOUR), start, end);
+    await this.repo.update(lead.id, {
+      silentFollowups: n,
+      nextActionAt,
+      ...(specific ? { resumeSentAt: now } : {}),
+    });
+    await this.syncDates(lead, now, nextActionAt);
     await this.safe(() =>
-      this.hoppe.addComment(lead.hoppeTaskId, `Retomada enviada em ${fmt(now)} (pendência: ${lead.pendingReason}).`),
+      this.hoppe.addComment(
+        lead.hoppeTaskId,
+        `${n}ª retomada enviada em ${fmt(now)}${specific ? ` (pendência: ${lead.pendingReason})` : ''}: lead sem resposta na qualificação.`,
+      ),
     );
   }
 
@@ -325,6 +357,7 @@ export class LeadOnboardingService {
       await this.repo.update(lead.id, { state: 'PAUSED', nextActionAt: null });
       await this.messenger.pauseConversation(conversationId);
       await this.syncDates(lead, now, null);
+      await this.safe(() => this.hoppe.removeTag(lead.hoppeTaskId, HUMAN_TAG));
       await this.safe(() =>
         this.hoppe.addComment(lead.hoppeTaskId, `Tiago respondeu direto pelo WhatsApp em ${fmt(now)}; IA pausada nesta conversa.`),
       );
@@ -333,14 +366,16 @@ export class LeadOnboardingService {
 
     if (lead.state === 'CONTACTED' || lead.state === 'INACTIVE') {
       const wasInactive = lead.state === 'INACTIVE';
+      const followupAt = this.followupAt(now);
       await this.repo.update(lead.id, {
         state: 'REPLIED',
         repliedAt: lead.repliedAt ?? now,
         lastInboundAt: now,
-        nextActionAt: null,
+        nextActionAt: followupAt,
+        silentFollowups: 0,
         summaryDueAt: new Date(now.getTime() + SUMMARY_DEBOUNCE_MS),
       });
-      await this.syncDates(lead, now, null);
+      await this.syncDates(lead, now, followupAt);
       await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.EM_QUALIFICACAO));
       await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.ATIVO));
       await this.safe(() =>
@@ -355,14 +390,20 @@ export class LeadOnboardingService {
     }
 
     if (['REPLIED', 'SCHEDULED', 'DISQUALIFIED'].includes(lead.state)) {
-      // Resposta cancela a retomada pendente e empurra o resumo.
+      // Resposta reinicia a contagem de retomadas e empurra o resumo. Só
+      // quem está em qualificação ganha retomada.
+      const followupAt = lead.state === 'REPLIED' ? this.followupAt(now) : null;
       await this.repo.update(lead.id, {
         lastInboundAt: now,
-        nextActionAt: null,
+        nextActionAt: followupAt,
+        silentFollowups: 0,
         summaryDueAt: new Date(now.getTime() + SUMMARY_DEBOUNCE_MS),
       });
+      if (lead.state === 'REPLIED' && (lead.silentFollowups ?? 0) >= MAX_SILENT_FOLLOWUPS) {
+        await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.ATIVO));
+      }
       // Em reunião agendada as datas são as da reunião: não mexe.
-      if (lead.state !== 'SCHEDULED') await this.syncDates(lead, now, null);
+      if (lead.state !== 'SCHEDULED') await this.syncDates(lead, now, followupAt);
     }
   }
 
@@ -415,8 +456,9 @@ export class LeadOnboardingService {
       return;
     }
 
-    await this.repo.update(lead.id, { pendingReason: null, nextActionAt: null });
-    await this.syncDates(lead, now, null);
+    const followupAt = this.followupAt(now);
+    await this.repo.update(lead.id, { pendingReason: null, nextActionAt: followupAt });
+    await this.syncDates(lead, now, followupAt);
     await this.safe(() =>
       this.hoppe.addComment(
         lead.hoppeTaskId,
@@ -482,6 +524,12 @@ export class LeadOnboardingService {
 
   private dates(lead: OnboardingLead): string[] {
     return Array.isArray(lead.attemptDates) ? (lead.attemptDates as string[]) : [];
+  }
+
+  /** Próxima checagem de retomada: 24h depois, dentro da janela de envio. */
+  private followupAt(now: Date): Date {
+    const { start, end } = this.config.sendWindow ?? { start: 8, end: 20 };
+    return adjustToSendWindow(new Date(now.getTime() + 24 * HOUR), start, end);
   }
 
   /**

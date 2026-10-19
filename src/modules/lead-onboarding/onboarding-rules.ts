@@ -152,6 +152,20 @@ function openerBody(progresso: string | null, oProduto: string): string {
 }
 
 /** Retomada única quando o lead parou no meio do agendamento (spec, seção 8). */
+/**
+ * Retomada de quem parou de responder no meio da qualificação (1ª e 2ª).
+ * Curta e sem repetir a pergunta: o agente retoma o ponto quando o lead voltar.
+ */
+export function renderSilentFollowup(n: 1 | 2, lead: LeadSnapshot): string {
+  const nome = lead.firstName?.trim();
+  const pre = nome ? `${nome}, ` : '';
+  const msg =
+    n === 1
+      ? `${pre}conseguiu ver minha última mensagem? Fico no aguardo por aqui`
+      : `${pre}vou deixar nossa conversa quieta por enquanto. Quando quiser continuar, é só me responder aqui`;
+  return capitalize(msg);
+}
+
 export function renderResume(
   reason: string,
   lead: LeadSnapshot,

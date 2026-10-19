@@ -139,6 +139,35 @@ export class OnboardingMessengerService {
   }
 
   /**
+   * Pode mandar retomada pra quem parou de responder na qualificação?
+   * 'human' = IA desligada, conversa atribuída, outro agente ou aprovação
+   * pendente; 'owes_reply' = a última mensagem é do lead (alguém deve a
+   * resposta, não o lead); null = a bola está com o lead.
+   */
+  async followupGuard(conversationId: string): Promise<'human' | 'owes_reply' | null> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { aiEnabled: true, assignedToId: true, activeAgentId: true },
+    });
+    if (!conv || conv.aiEnabled === false || conv.assignedToId) return 'human';
+    if (conv.activeAgentId !== this.config.agentId && conv.activeAgentId !== this.config.supportAgentId) {
+      return 'human';
+    }
+    const pending = await this.prisma.aiPendingAction.findFirst({
+      where: { conversationId, status: 'PENDING' },
+      select: { id: true },
+    });
+    if (pending) return 'human';
+    const last = await this.prisma.message.findFirst({
+      where: { conversationId, type: { not: 'SYSTEM' } },
+      orderBy: { createdAt: 'desc' },
+      select: { direction: true },
+    });
+    if (last?.direction === MessageDirection.INBOUND) return 'owes_reply';
+    return null;
+  }
+
+  /**
    * Passa a conversa pro agente de suporte e marca pra quem devolver. A nota
    * no promptContext diz ao suporte pra devolver quando terminar.
    */
