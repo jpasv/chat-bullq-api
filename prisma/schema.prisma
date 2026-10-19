@@ -1802,6 +1802,8 @@ model OnboardingLead {
   meetingEventId String?   @map("meeting_event_id")
   // Criação da última PendingAction já avisada no canal do Hoppe.
   humanAlertAt   DateTime? @map("human_alert_at")
+  // Retomadas automáticas desde a última resposta do lead (zera a cada resposta).
+  silentFollowups Int      @default(0) @map("silent_followups")
   snapshot       Json      @default("{}")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")

@@ -194,13 +194,36 @@ describe('LeadOnboardingService.tick', () => {
   it('retomada única pra lead aguardando sócio', async () => {
     const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', pendingReason: 'socios', pendingDetail: 'Carlos', snapshot: { firstName: 'Mayara' } });
     const { service, repo, messenger } = build({ lead });
+    (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await service.tick(brt('2026-10-18T14:00:00'));
     expect(messenger.send.mock.calls[0][0].text).toBe(
       'Mayara, conseguiu combinar com Carlos a participação no diagnóstico?',
     );
     const data = repo.update.mock.calls.at(-1)![1];
     expect(data.resumeSentAt).toBeInstanceOf(Date);
-    expect(data.nextActionAt).toBeNull();
+    expect(data.silentFollowups).toBe(1);
+    expect(data.nextActionAt).toBeInstanceOf(Date);
+  });
+
+  it('retomada de silêncio: 2ª mensagem genérica; depois da 2ª vira Inativo', async () => {
+    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', silentFollowups: 1, snapshot: { firstName: 'Mayara' } });
+    const { service, messenger } = build({ lead });
+    (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send.mock.calls[0][0].text).toContain('Mayara, vou deixar nossa conversa quieta');
+    const done = build({ lead: { ...lead, silentFollowups: 2 } });
+    (done.messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
+    await done.service.tick(brt('2026-10-18T14:00:00'));
+    expect(done.messenger.send).not.toHaveBeenCalled();
+    expect(done.hoppe.setField).toHaveBeenCalledWith(TASK, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.INATIVO);
+  });
+
+  it('retomada não sai com a bola no time (humano/aprovação pendente)', async () => {
+    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara' } });
+    const { service, messenger } = build({ lead });
+    (messenger as any).followupGuard = jest.fn().mockResolvedValue('human');
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send).not.toHaveBeenCalled();
   });
 });
 

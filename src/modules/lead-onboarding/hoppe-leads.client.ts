@@ -28,7 +28,7 @@ export class HoppeLeadsClient {
   }
 
   private async request<T>(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: unknown,
   ): Promise<T> {
@@ -97,6 +97,10 @@ export class HoppeLeadsClient {
     if (dates.due !== undefined) body.due_date = dates.due ? dates.due.getTime() : null;
     if (Object.keys(body).length === 0) return;
     await this.request('PUT', `/api/v2/task/${taskId}`, body);
+  }
+
+  async removeTag(taskId: string, tagName: string): Promise<void> {
+    await this.request('DELETE', `/api/v2/task/${taskId}/tag/${encodeURIComponent(tagName)}`);
   }
 
   async addComment(taskId: string, text: string): Promise<void> {

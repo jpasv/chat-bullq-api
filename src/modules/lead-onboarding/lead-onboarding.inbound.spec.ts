@@ -41,7 +41,8 @@ describe('LeadOnboardingService.onInbound', () => {
     await service.onInbound('conv1', { isEcho: false, isNew: true, text: 'oi' });
     const data = repo.update.mock.calls[0][1];
     expect(data.state).toBe('REPLIED');
-    expect(data.nextActionAt).toBeNull();
+    expect(data.nextActionAt).toBeInstanceOf(Date);
+    expect(data.silentFollowups).toBe(0);
     expect(data.summaryDueAt).toBeInstanceOf(Date);
     expect(hoppe.setStatus).toHaveBeenCalledWith(TASK, HOPPE_STATUS.EM_QUALIFICACAO);
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('Lead respondeu'));
@@ -55,11 +56,12 @@ describe('LeadOnboardingService.onInbound', () => {
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('voltou a responder'));
   });
 
-  it('nova mensagem em REPLIED cancela a retomada e empurra o resumo', async () => {
+  it('nova mensagem em REPLIED reagenda a retomada e zera a contagem', async () => {
     const { service, repo, hoppe } = build(lead('REPLIED'));
     await service.onInbound('conv1', { isEcho: false, isNew: true, text: 'beleza' });
     const data = repo.update.mock.calls[0][1];
-    expect(data.nextActionAt).toBeNull();
+    expect(data.nextActionAt).toBeInstanceOf(Date);
+    expect(data.silentFollowups).toBe(0);
     expect(data.state).toBeUndefined();
     expect(hoppe.setStatus).not.toHaveBeenCalled();
   });
@@ -87,11 +89,11 @@ describe('LeadOnboardingService.onInbound', () => {
 });
 
 describe('onInbound — datas no Hoppe', () => {
-  it('resposta: start = agora, due limpo', async () => {
+  it('resposta: start = agora, due = checagem de retomada', async () => {
     const { service, hoppe } = build({ id: 'l1', hoppeTaskId: TASK, state: 'CONTACTED' });
     (hoppe as any).setDates = jest.fn().mockResolvedValue(undefined);
     await service.onInbound('conv1', { isEcho: false, isNew: true, text: 'oi' });
-    expect((hoppe as any).setDates).toHaveBeenCalledWith(TASK, { start: expect.any(Date), due: null });
+    expect((hoppe as any).setDates).toHaveBeenCalledWith(TASK, { start: expect.any(Date), due: expect.any(Date) });
   });
 
   it('reunião agendada: mensagem do lead não mexe nas datas da reunião', async () => {

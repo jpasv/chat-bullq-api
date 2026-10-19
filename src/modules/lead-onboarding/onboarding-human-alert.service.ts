@@ -3,6 +3,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { HoppeChatClient } from './hoppe-chat.client';
 import { HoppeLeadsClient } from './hoppe-leads.client';
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
+import { HUMAN_TAG } from './lead-onboarding.constants';
 
 export interface HumanAlertRow {
   leadId: string;
@@ -23,7 +24,8 @@ const TOOL_LABEL: Record<string, string> = {
  * aprovação humana (PendingAction) numa conversa do onboarding. Sem o aviso a
  * aprovação expira em silêncio e o lead fica sem resposta.
  *
- * Cada PendingAction é avisada uma vez: `human_alert_at` guarda a criação da
+ * Também põe a tag `aguardando-humano` e start/due = hora do pedido. Cada
+ * PendingAction é avisada uma vez: `human_alert_at` guarda a criação da
  * última já avisada.
  */
 @Injectable()
@@ -60,15 +62,28 @@ export class OnboardingHumanAlertService {
           where: { id: row.leadId },
           data: { humanAlertAt: row.createdAt },
         });
-        await this.hoppe
-          .addComment(row.hoppeTaskId, `Precisa de humano: ${describe(row)}. Avisado no canal Leads onboarding.`)
-          .catch((err) => this.logger.warn(`Comentário do alerta falhou: ${(err as Error).message}`));
+        // Tag + datas na hora do pedido: a task fica atrasada até alguém agir.
+        await this.bestEffort(() => this.hoppe.addTag(row.hoppeTaskId, HUMAN_TAG));
+        await this.bestEffort(() =>
+          this.hoppe.setDates(row.hoppeTaskId, { start: row.createdAt, due: row.createdAt }),
+        );
+        await this.bestEffort(() =>
+          this.hoppe.addComment(row.hoppeTaskId, `Precisa de humano: ${describe(row)}. Avisado no canal Leads onboarding.`),
+        );
         sent++;
       } catch (err) {
         this.logger.warn(`Alerta humano do lead ${row.leadId} falhou: ${(err as Error).message}`);
       }
     }
     return sent;
+  }
+
+  private async bestEffort(fn: () => Promise<unknown>): Promise<void> {
+    try {
+      await fn();
+    } catch (err) {
+      this.logger.warn(`Escrita no Hoppe do alerta falhou: ${(err as Error).message}`);
+    }
   }
 }
 

@@ -23,7 +23,11 @@ function build(rows: HumanAlertRow[], opts: { configured?: boolean; postFails?: 
       ? jest.fn().mockRejectedValue(new Error('401'))
       : jest.fn().mockResolvedValue(undefined),
   };
-  const hoppe = { addComment: jest.fn().mockResolvedValue(undefined) };
+  const hoppe = {
+    addComment: jest.fn().mockResolvedValue(undefined),
+    addTag: jest.fn().mockResolvedValue(undefined),
+    setDates: jest.fn().mockResolvedValue(undefined),
+  };
   const config = { enabled: true, alertChannelId: 'ch1' };
   const svc = new OnboardingHumanAlertService(prisma as any, chat as any, hoppe as any, config as any);
   return { svc, prisma, chat, hoppe };
@@ -37,6 +41,8 @@ describe('OnboardingHumanAlertService', () => {
     expect(chat.postToChannel).toHaveBeenCalledWith('ch1', expect.stringContaining('Precisa de humano: Sérgio Alves'));
     expect(prisma.onboardingLead.update).toHaveBeenCalledWith({ where: { id: 'l1' }, data: { humanAlertAt: r.createdAt } });
     expect(hoppe.addComment).toHaveBeenCalledWith('t1', expect.stringContaining('Simples Nacional'));
+    expect(hoppe.addTag).toHaveBeenCalledWith('t1', 'aguardando-humano');
+    expect(hoppe.setDates).toHaveBeenCalledWith('t1', { start: r.createdAt, due: r.createdAt });
   });
 
   it('falha no post não marca o lead (tenta de novo no próximo tick)', async () => {
