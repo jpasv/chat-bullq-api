@@ -26,6 +26,8 @@ enum ChannelType {
   WHATSAPP_ZAPPFY
   INSTAGRAM
   GMAIL
+  // Área de membros (members-backend): chat do widget após handoff do bot.
+  MEMBERS
 }
 
 // ORG    = todos os membros da org enxergam (default — preserva o comportamento legado)
