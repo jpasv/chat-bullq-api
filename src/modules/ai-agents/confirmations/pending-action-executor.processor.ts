@@ -124,7 +124,30 @@ export class PendingActionExecutorProcessor extends WorkerHost {
   private async executeTransferToHuman(action: {
     conversationId: string;
     args: Record<string, unknown>;
+    createdAt: string;
   }): Promise<unknown> {
+    // Aprovação tardia: se a IA voltou a responder depois do pedido, a
+    // conversa seguiu (o cliente resolveu sozinho, o assunto mudou) e o
+    // motivo da transferência ficou velho. Desligar a IA agora deixaria o
+    // cliente sem resposta no meio de outro assunto.
+    const resumedRuns = await this.prisma.aiAgentRun.count({
+      where: {
+        conversationId: action.conversationId,
+        startedAt: { gt: new Date(action.createdAt) },
+        finalAction: 'REPLIED',
+      },
+    });
+    if (resumedRuns > 0) {
+      this.logger.warn(
+        `transferToHuman obsoleta em ${action.conversationId}: IA respondeu ${resumedRuns}x depois do pedido, IA segue ligada`,
+      );
+      return {
+        ok: false,
+        skipped: 'conversa_seguiu',
+        reason: action.args?.reason ?? null,
+      };
+    }
+
     // Pausa a IA na conversa + sinaliza que aguarda atendente humano.
     // Notificações em tempo real (banner no inbox) já foram emitidas no
     // momento da criação do PendingAction — aqui só efetivamos a transição.
