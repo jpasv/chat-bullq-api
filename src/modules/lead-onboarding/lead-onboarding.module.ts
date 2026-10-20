@@ -8,6 +8,7 @@ import { LeadOnboardingRepository } from './lead-onboarding.repository';
 import { HoppeLeadsClient } from './hoppe-leads.client';
 import { HoppeChatClient } from './hoppe-chat.client';
 import { OnboardingHumanAlertService } from './onboarding-human-alert.service';
+import { OnboardingHumanResumeService } from './onboarding-human-resume.service';
 import { OnboardingMessengerService } from './onboarding-messenger.service';
 import { OnboardingSummaryService } from './onboarding-summary.service';
 import { LeadOnboardingService } from './lead-onboarding.service';
@@ -34,6 +35,7 @@ import { ONBOARDING_TICK_QUEUE } from './lead-onboarding.constants';
     HoppeLeadsClient,
     HoppeChatClient,
     OnboardingHumanAlertService,
+    OnboardingHumanResumeService,
     OnboardingMessengerService,
     OnboardingSummaryService,
     LeadOnboardingService,
