@@ -19,7 +19,7 @@ const lead = (snapshot: Record<string, any> = {}) => ({
 
 function realService(found: any) {
   const repo = { findByConversation: jest.fn().mockResolvedValue(found), update: jest.fn() };
-  const hoppe = { setStatus: jest.fn(), setField: jest.fn(), addComment: jest.fn(), addTag: jest.fn() };
+  const hoppe = { setStatus: jest.fn(), setField: jest.fn(), addComment: jest.fn(), addTag: jest.fn(), setAssignees: jest.fn(), setDates: jest.fn() };
   const svc = new LeadOnboardingService(repo as any, hoppe as any, {} as any, {} as any, {} as any);
   return { svc, repo, hoppe };
 }
@@ -63,6 +63,10 @@ describe('tools do onboarding', () => {
     expect(arg.title).toBe('Diagnóstico de IA – Mayara Silva');
     expect(arg.description).not.toMatch(/fatura|milhão|Maestria|presencial/i);
     expect(hoppe.setStatus).toHaveBeenCalledWith(TASK, HOPPE_STATUS.REUNIAO_AGENDADA);
+    expect(hoppe.setAssignees).toHaveBeenCalledWith(TASK, {
+      add: ['ea1fa1a7-1742-4153-811b-7784ef00b18e'],
+      rem: ['f16655b4-ad1c-4a12-998f-c29c319c1307'],
+    });
   });
 
   it('agendar com início no passado é recusado', async () => {

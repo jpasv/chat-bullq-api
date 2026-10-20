@@ -12,6 +12,12 @@ export const HOPPE_STATUS = {
   DESQUALIFICADO: 'f673a940-cde4-4dde-be1d-1544c08f786f',
 } as const;
 
+/** Responsáveis: Claude conduz a abordagem; com reunião marcada passa pro Tiago (pedido de 19/10). */
+export const HOPPE_USER = {
+  CLAUDE: 'f16655b4-ad1c-4a12-998f-c29c319c1307',
+  TIAGO: 'ea1fa1a7-1742-4153-811b-7784ef00b18e',
+} as const;
+
 export const HOPPE_STATUS_NAME_NOVA = 'nova oportunidade';
 
 export const HOPPE_FIELD = {

@@ -57,6 +57,8 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     setField: jest.fn().mockResolvedValue(undefined),
     addTag: jest.fn().mockResolvedValue(undefined),
     addComment: jest.fn().mockResolvedValue(undefined),
+    setAssignees: jest.fn().mockResolvedValue(undefined),
+    setDates: jest.fn().mockResolvedValue(undefined),
   };
   const messenger = {
     returnFromSupport: jest.fn().mockResolvedValue(null),
@@ -96,6 +98,8 @@ describe('LeadOnboardingService.tick', () => {
     expect(messenger.send).toHaveBeenCalledTimes(1);
     expect(messenger.send.mock.calls[0][0].text[1]).toContain('ainda não tinha começado com o 57 Agents Advocacia');
     expect(hoppe.addTag).toHaveBeenCalledWith(TASK, '1º mensagem');
+    expect(hoppe.setAssignees).toHaveBeenCalledWith(TASK, { add: ['f16655b4-ad1c-4a12-998f-c29c319c1307'] });
+    expect(hoppe.setDates).toHaveBeenCalledWith(TASK, expect.objectContaining({ start: now }));
     expect(hoppe.setField).toHaveBeenCalledWith(TASK, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.ATIVO);
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('1ª tentativa'));
     const data = repo.update.mock.calls.at(-1)![1];
