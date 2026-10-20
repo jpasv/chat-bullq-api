@@ -30,6 +30,13 @@ export class LeadOnboardingConfigService {
     return this.config.get<string>('ONBOARDING_OUTREACH_CHANNEL_ID') ?? null;
   }
 
+  /** Até quando o 1258 está restringido: ações nele ficam pra depois disso. */
+  get legacyResumeAt(): Date | null {
+    const raw = this.config.get<string>('ONBOARDING_LEGACY_RESUME_AT');
+    const d = raw ? new Date(raw) : null;
+    return d && !Number.isNaN(d.getTime()) ? d : null;
+  }
+
   /** Templates HSM aprovados na WABA do canal de abordagem. */
   get templates(): { abertura: string; lembrete: string; ultima: string; retomada: string; continuacao: string } {
     return {

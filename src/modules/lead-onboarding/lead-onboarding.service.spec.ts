@@ -90,7 +90,7 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     config as any,
     summaries as any,
   );
-  return { service, repo, hoppe, messenger, lead };
+  return { service, repo, hoppe, messenger, lead, config };
 }
 
 describe('LeadOnboardingService.tick', () => {
@@ -157,29 +157,23 @@ describe('LeadOnboardingService.tick', () => {
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('conversa existente'));
   });
 
-  it('lead abordado pelo 1258 recebe a 2ª pela API oficial, em conversa nova', async () => {
+  it('lead começado pelo 1258 continua no 1258 (texto, mesma conversa)', async () => {
     const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1258', phone: '5511975286081', snapshot: { firstName: 'Mayara', phone: '5511975286081', produto: '57 Agents Advocacia' } });
-    const { service, messenger, repo } = build({ lead });
+    const { service, messenger } = build({ lead });
     messenger.channelOf.mockResolvedValue('canal1258');
-    messenger.send.mockResolvedValue({ conversationId: 'convOficial', contactId: 'ct2' });
     await service.tick(brt('2026-10-20T10:00:00'));
-    const arg = messenger.send.mock.calls[0][0];
-    expect(arg.conversationId).toBeUndefined();
-    expect(arg.template).toEqual({ name: 'brvy_onb_lembrete', vars: ['Mayara', '57 Agents Advocacia'] });
-    expect(repo.update.mock.calls.at(-1)![1].conversationId).toBe('convOficial');
+    expect(messenger.send.mock.calls[0][0].conversationId).toBe('conv1258');
   });
 
-  it('retomada de conversa no 1258 migra pro oficial com template de continuação e histórico', async () => {
-    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1258', phone: '5511975286081', snapshot: { firstName: 'Mayara', phone: '5511975286081', produto: '57 Agents Advocacia' } });
-    const { service, messenger, repo } = build({ lead });
-    (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
+  it('1258 restringido: ação na conversa de lá só reagenda pro fim da restrição', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1258', phone: '5511975286081', snapshot: { firstName: 'Mayara' } });
+    const { service, messenger, repo, config } = build({ lead }) as any;
     messenger.channelOf.mockResolvedValue('canal1258');
-    messenger.send.mockResolvedValue({ conversationId: 'convOficial', contactId: 'ct2' });
+    const resumeAt = new Date('2026-10-21T12:00:00Z');
+    config.legacyResumeAt = resumeAt;
     await service.tick(brt('2026-10-20T10:00:00'));
-    expect(messenger.send.mock.calls[0][0].template.name).toBe('brvy_onb_continuacao');
-    expect(messenger.setPromptContext.mock.calls[0][1]).toContain('Lead: oi');
-    expect(messenger.pauseConversation).toHaveBeenCalledWith('conv1258');
-    expect(repo.update.mock.calls.some(([, d]: any) => d.conversationId === 'convOficial')).toBe(true);
+    expect(messenger.send).not.toHaveBeenCalled();
+    expect(repo.update.mock.calls.at(-1)[1]).toEqual({ nextActionAt: resumeAt });
   });
 
   it('CONTACTED attempt 1 vencido manda a 2ª', async () => {

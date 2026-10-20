@@ -170,34 +170,9 @@ export class LeadOnboardingService {
     if (await this.blockedByConversation(lead, now)) return;
     const template = this.template(attempt === 2 ? 'lembrete' : 'ultima', snapshot);
 
-    // Lead que nunca respondeu e foi abordado pelo 1258: a próxima tentativa
-    // sai pelo canal de abordagem (API oficial), numa conversa nova.
-    const outreach = this.messenger.outreachChannelId();
-    if ((await this.messenger.channelOf(lead.conversationId)) !== outreach) {
-      const target = await this.messenger.resolveTarget(snapshot.phone ?? lead.phone);
-      if (!target) return this.skip(lead, 'número sem WhatsApp no canal de abordagem');
-      let sent: { conversationId: string; contactId: string };
-      try {
-        sent = await this.messenger.send({
-          target,
-          name: snapshot.name,
-          email: snapshot.email,
-          text: renderAttempt(attempt, snapshot),
-          template,
-        });
-      } catch (err) {
-        if (err instanceof HumanConversationError) return this.skip(lead, 'conversa com o time no canal oficial, abordagem manual');
-        throw err;
-      }
-      await this.safe(() =>
-        this.messenger.setPromptContext(
-          sent.conversationId,
-          buildPromptContext(snapshot, { attempt, state: 'CONTACTED' }) + OFFICIAL_OUTREACH_NOTE,
-        ),
-      );
-      await this.afterAttempt(lead, attempt, now, { conversationId: sent.conversationId, contactId: sent.contactId });
-      return;
-    }
+    // Lead começado pelo 1258 continua por lá (pedido de 20/10); enquanto o
+    // número estiver restringido, só reagenda.
+    if (await this.waitLegacyChannel(lead, now)) return;
 
     await this.messenger.send({
       target: { digits: lead.phone, jid: lead.phone },
@@ -255,6 +230,18 @@ export class LeadOnboardingService {
       this.hoppe.addComment(lead.hoppeTaskId, `Conversa movida do WhatsApp do Tiago (restringido) pro número oficial da Bravy em ${fmt(now)}.`),
     );
     return sent.conversationId;
+  }
+
+  /**
+   * Conversa fora do canal de abordagem (o 1258) com o número ainda
+   * restringido: reagenda pro fim da restrição em vez de mandar e falhar.
+   */
+  private async waitLegacyChannel(lead: OnboardingLead, now: Date): Promise<boolean> {
+    const resumeAt = this.config.legacyResumeAt;
+    if (!resumeAt || now >= resumeAt || !lead.conversationId) return false;
+    if ((await this.messenger.channelOf(lead.conversationId)) === this.messenger.outreachChannelId()) return false;
+    await this.repo.update(lead.id, { nextActionAt: resumeAt });
+    return true;
   }
 
   /** Template HSM da API oficial: {{1}} primeiro nome, {{2}} produto. */
@@ -347,12 +334,7 @@ export class LeadOnboardingService {
     }
     const n = (done + 1) as 1 | 2;
     const snapshot = this.snapshotOf(lead);
-    // Conversa no 1258 (restringido em 20/10): a retomada leva a conversa pro canal oficial.
-    if ((await this.messenger.channelOf(lead.conversationId)) !== this.messenger.outreachChannelId()) {
-      await this.migrateConversation(lead, now);
-      await this.repo.update(lead.id, { silentFollowups: n });
-      return;
-    }
+    if (await this.waitLegacyChannel(lead, now)) return;
     // Parou com o suporte (Lívia): volta pro onboarding, que segue pro convite quando ele responder.
     const fromSupport = await this.messenger.returnFromSupport(lead.conversationId);
     const specific =
