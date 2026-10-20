@@ -23,7 +23,7 @@ const SLOT_BANDS: Array<[number, number]> = [
 const WEEKDAYS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
 /**
- * Agenda "Diagnósticos de IA – Pedro" (conta produtos@asv.digital). Oferece
+ * Agenda "Diagnósticos de IA" (conta produtos@asv.digital); os diagnósticos são com o Tiago. Oferece
  * blocos de 1h das 9h às 20h, todos os dias, a partir de amanhã, e cria o
  * evento com Meet. Usa a mesma credencial OAuth da Sofia (scope calendar).
  */
@@ -52,8 +52,10 @@ export class DiagnosticCalendarService {
     max = 6,
     startDay?: Date,
   ): Promise<Array<{ startIso: string; label: string }>> {
-    const tomorrow = brtMidnight(from, 1);
-    const firstDay = startDay && startDay > tomorrow ? brtMidnight(startDay, 0) : tomorrow;
+    // Hoje também vale, com 2h de antecedência (lead que pede "hoje às 14h").
+    const today = brtMidnight(from, 0);
+    const earliest = new Date(from.getTime() + 2 * HOUR);
+    const firstDay = startDay && startDay > today ? brtMidnight(startDay, 0) : today;
     const end = new Date(firstDay.getTime() + days * 24 * HOUR);
     const busy = await this.busy(firstDay, end);
     const isFree = (start: Date) => {
@@ -68,7 +70,7 @@ export class DiagnosticCalendarService {
         // Passo de 30 min: a agenda do Tiago tem buracos em meia hora.
         for (let m = from_h * 60; m <= to_h * 60; m += 30) {
           const start = new Date(firstDay.getTime() + d * 24 * HOUR + m * 60_000);
-          if (isFree(start)) {
+          if (start >= earliest && isFree(start)) {
             slots.push({ startIso: start.toISOString(), label: slotLabel(start, from) });
             break;
           }
@@ -160,6 +162,7 @@ export function slotLabel(at: Date, now: Date): string {
   const days = Math.round((brtMidnight(at, 0).getTime() - today.getTime()) / (24 * HOUR));
   const min = local.getUTCMinutes();
   const hora = `${local.getUTCHours()}h${min ? String(min).padStart(2, '0') : ''}`;
+  if (days === 0) return `hoje às ${hora}`;
   if (days === 1) return `amanhã às ${hora}`;
   const weekday = WEEKDAYS[local.getUTCDay()];
   if (days > 1 && days < 7) return `${weekday} às ${hora}`;

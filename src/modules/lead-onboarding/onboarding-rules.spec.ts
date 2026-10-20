@@ -103,7 +103,7 @@ describe('renderAttempt', () => {
       'Mayara, conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo',
     ]);
     expect(renderAttempt(3, lead())).toEqual([
-      'Mayara, como você é cliente, tem um diagnóstico de IA de 1h com o Pedro, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro',
+      'Mayara, como você é cliente, tem um diagnóstico de IA de 1h com o Tiago, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro',
       'essa semana ainda tem horário, quer que eu separe um pra você?',
     ]);
   });

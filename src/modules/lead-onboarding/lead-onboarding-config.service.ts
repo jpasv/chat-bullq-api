@@ -69,7 +69,7 @@ export class LeadOnboardingConfigService {
     return this.config.get<string>('ONBOARDING_CALENDAR_ID') ?? null;
   }
 
-  /** E-mail do Pedro, convidado em todo diagnóstico. */
+  /** E-mail de quem conduz o diagnóstico (Tiago), convidado em todo evento. */
   get closerEmail(): string {
     return (
       this.config.get<string>('ONBOARDING_CLOSER_EMAIL') ?? 'produtos@asv.digital'

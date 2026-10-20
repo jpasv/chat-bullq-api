@@ -3,12 +3,12 @@ import { LeadOnboardingService } from '../../../lead-onboarding/lead-onboarding.
 import { DiagnosticCalendarService } from '../../../lead-onboarding/diagnostic-calendar.service';
 import { AiTool, ToolContext, ToolResult } from '../tool.types';
 
-/** Horários livres do Diagnóstico de IA (agenda do Pedro), a partir de amanhã. */
+/** Horários livres do Diagnóstico de IA (agenda do Tiago), a partir de hoje com 2h de antecedência. */
 @Injectable()
 export class ConsultarHorariosDiagnosticoTool implements AiTool {
   readonly name = 'consultarHorariosDiagnostico';
   readonly description =
-    'Lista horários REAIS livres para o Diagnóstico de IA com o Pedro (1h, das 9h às 20h, a partir de amanhã, horário de Brasília). Chame SEMPRE antes de oferecer horário — nunca invente. Ofereça 2 opções (de preferência em dias diferentes) usando o campo label. Para outro período, passe aPartirDe.';
+    'Lista horários REAIS livres para o Diagnóstico de IA com o Tiago (1h, das 9h às 20h, a partir de amanhã, horário de Brasília). Chame SEMPRE antes de oferecer horário — nunca invente. Ofereça 2 opções (de preferência em dias diferentes) usando o campo label. Para outro período, passe aPartirDe.';
   readonly parameters = {
     type: 'object',
     additionalProperties: false,

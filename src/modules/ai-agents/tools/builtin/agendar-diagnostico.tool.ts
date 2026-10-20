@@ -10,7 +10,7 @@ import { AiTool, ToolContext, ToolResult } from '../tool.types';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Cria o Diagnóstico de IA REAL na agenda do Pedro (Meet + convite por
+ * Cria o Diagnóstico de IA REAL na agenda do Tiago (Meet + convite por
  * e-mail) e move a task do Hoppe pra "reunião agendada". Autônoma: a
  * descrição exige confirmação por escrito do cliente antes da chamada.
  * O convite NUNCA leva dado comercial (faturamento, oferta) — isso fica no Hoppe.
@@ -21,7 +21,7 @@ export class AgendarDiagnosticoTool implements AiTool {
 
   readonly name = 'agendarDiagnostico';
   readonly description =
-    'Agenda o Diagnóstico de IA REAL (1h, videochamada com o Pedro) e envia o convite por e-mail. Exige registrarQualificacao = qualificado antes. SÓ CHAME depois que o cliente confirmou POR ESCRITO data, horário e participantes, e que todos os sócios/decisores vão participar. Use um inicioIso devolvido por consultarHorariosDiagnostico. Se voltar horario_ocupado, consulte de novo e ofereça outras opções. Nunca diga que agendou antes de receber ok=true.';
+    'Agenda o Diagnóstico de IA REAL (1h, videochamada com o Tiago) e envia o convite por e-mail. Exige registrarQualificacao = qualificado antes. SÓ CHAME depois que o cliente confirmou POR ESCRITO data, horário e participantes, e que todos os sócios/decisores vão participar. Use um inicioIso devolvido por consultarHorariosDiagnostico. Se voltar horario_ocupado, consulte de novo e ofereça outras opções. Nunca diga que agendou antes de receber ok=true.';
   readonly parameters = {
     type: 'object',
     additionalProperties: false,
@@ -36,7 +36,7 @@ export class AgendarDiagnosticoTool implements AiTool {
         items: { type: 'string' },
         minItems: 1,
         maxItems: 8,
-        description: 'E-mails do cliente e dos sócios que recebem o convite. O Pedro entra automaticamente.',
+        description: 'E-mails do cliente e dos sócios que recebem o convite. O Tiago entra automaticamente.',
       },
       participantes: {
         type: 'array',
@@ -88,7 +88,7 @@ export class AgendarDiagnosticoTool implements AiTool {
         attendees,
         title: `Diagnóstico de IA – ${nome}`,
         description: [
-          'Diagnóstico de IA para sua Operação, gratuito, com o Pedro (Bravy).',
+          'Diagnóstico de IA para sua Operação, gratuito, com o Tiago (Bravy).',
           'Objetivo: entender a rotina da empresa, identificar onde a IA pode ajudar e o que priorizar. A implementação não está incluída.',
           `Participantes: ${participantes.join(', ') || nome}.`,
         ].join('\n\n'),
