@@ -4,6 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { LeadOnboardingService } from './lead-onboarding.service';
 import { LeadOnboardingConfigService } from './lead-onboarding-config.service';
 import { OnboardingHumanAlertService } from './onboarding-human-alert.service';
+import { OnboardingHumanResumeService } from './onboarding-human-resume.service';
 import { ONBOARDING_TICK_JOB, ONBOARDING_TICK_QUEUE } from './lead-onboarding.constants';
 
 /**
@@ -19,6 +20,7 @@ export class LeadOnboardingTickCron extends WorkerHost implements OnModuleInit {
     private readonly onboarding: LeadOnboardingService,
     private readonly config: LeadOnboardingConfigService,
     private readonly alerts: OnboardingHumanAlertService,
+    private readonly humanResume: OnboardingHumanResumeService,
     @InjectQueue(ONBOARDING_TICK_QUEUE) private readonly queue: Queue,
   ) {
     super();
@@ -50,6 +52,12 @@ export class LeadOnboardingTickCron extends WorkerHost implements OnModuleInit {
       if (alerted > 0) this.logger.log(`Onboarding tick: human_alerts=${alerted}`);
     } catch (err) {
       this.logger.warn(`Alertas humanos falharam: ${(err as Error).message}`);
+    }
+    try {
+      const resumed = await this.humanResume.run();
+      if (resumed > 0) this.logger.log(`Onboarding tick: ia_retomou=${resumed}`);
+    } catch (err) {
+      this.logger.warn(`Retomada pós-humano falhou: ${(err as Error).message}`);
     }
     return r;
   }
