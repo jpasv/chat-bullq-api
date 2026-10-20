@@ -308,6 +308,24 @@ export class OnboardingMessengerService {
     await this.prisma.message.update({ where: { id: messageId }, data: { metadata: metadata as Prisma.InputJsonValue } });
   }
 
+  /** Últimas mensagens da conversa em texto corrido (pra levar o contexto pra outro canal). */
+  async transcript(conversationId: string, limit = 24): Promise<string> {
+    const msgs = await this.prisma.message.findMany({
+      where: { conversationId, type: { not: 'SYSTEM' }, status: { not: MessageStatus.FAILED } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: { direction: true, type: true, content: true },
+    });
+    return msgs
+      .reverse()
+      .map((m) => {
+        const c = (m.content ?? {}) as Record<string, any>;
+        const text = typeof c.text === 'string' && c.text ? c.text : typeof c.caption === 'string' && c.caption ? c.caption : `[${m.type.toLowerCase()}]`;
+        return `${m.direction === MessageDirection.INBOUND ? 'Lead' : 'Bravy'}: ${text.replace(/\s+/g, ' ').slice(0, 400)}`;
+      })
+      .join('\n');
+  }
+
   /** Humano assumiu: desliga a IA só nesta conversa. */
   async pauseConversation(conversationId: string): Promise<void> {
     await this.prisma.conversation.update({
