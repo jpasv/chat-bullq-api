@@ -560,7 +560,7 @@ export class LeadOnboardingService {
     await this.safe(() =>
       this.hoppe.addComment(
         lead.hoppeTaskId,
-        `Qualificado para o Diagnóstico de IA em ${fmt(now)}. ${input.motivo}. Dados: ${dados}. Oferta sugerida pro Pedro: ${suggestedOffer(snapshot.phone, faixa)}.`,
+        `Qualificado para o Diagnóstico de IA em ${fmt(now)}. ${input.motivo}. Dados: ${dados}. Oferta sugerida pro Tiago: ${suggestedOffer(snapshot.phone, faixa)}.`,
       ),
     );
   }
@@ -669,9 +669,9 @@ export class LeadOnboardingService {
   }
 }
 
-/** Oferta que o Pedro deve levar pro diagnóstico (anotação interna, nunca pro cliente). */
+/** Oferta que o Tiago deve levar pro diagnóstico (anotação interna, nunca pro cliente). */
 export function suggestedOffer(phone: string | null, faixa: string | null): string {
-  if (!revenueAbove500kYear(faixa)) return 'Pedro decide na reunião (faturamento abaixo de R$ 500k/ano ou não confirmado)';
+  if (!revenueAbove500kYear(faixa)) return 'Tiago decide na reunião (faturamento abaixo de R$ 500k/ano ou não confirmado)';
   return isRio(phone) ? 'evento presencial (Rio, acima de R$ 500k/ano)' : 'Maestria (fora do Rio, acima de R$ 500k/ano)';
 }
 

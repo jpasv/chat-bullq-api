@@ -24,7 +24,7 @@ describe('DiagnosticCalendarService.freeSlots', () => {
     const svc = build([
       { start: brt('2026-10-19T10:00:00').toISOString(), end: brt('2026-10-19T11:00:00').toISOString() },
     ]);
-    const slots = await svc.freeSlots(brt('2026-10-18T16:30:00'), 2, 20);
+    const slots = await svc.freeSlots(brt('2026-10-18T21:00:00'), 3, 20);
     expect(slots.map((s) => s.startIso)).toEqual([
       brt('2026-10-19T11:00:00').toISOString(),
       brt('2026-10-19T14:00:00').toISOString(),
@@ -54,7 +54,7 @@ describe('DiagnosticCalendarService.freeSlots', () => {
     }) as any);
     const auth = { getCalendarToken: jest.fn().mockResolvedValue('tok') };
     const svc = new DiagnosticCalendarService(auth as any, { calendarId: 'cal1', extraAttendees: ['tiago@asv.digital'] } as any);
-    const slots = await svc.freeSlots(brt('2026-10-18T16:30:00'), 1, 2);
+    const slots = await svc.freeSlots(brt('2026-10-18T21:00:00'), 2, 2);
     expect(slots[0].startIso).toBe(brt('2026-10-19T11:30:00').toISOString());
     expect(slots[0].label).toBe('amanhã às 11h30');
   });
@@ -66,6 +66,13 @@ describe('DiagnosticCalendarService.freeSlots', () => {
     const auth = { getCalendarToken: jest.fn().mockResolvedValue('tok') };
     const svc = new DiagnosticCalendarService(auth as any, { calendarId: 'cal1', extraAttendees: ['tiago@asv.digital'] } as any);
     await expect(svc.freeSlots(brt('2026-10-18T16:30:00'), 1, 2)).rejects.toThrow(/sem acesso/);
+  });
+
+  it('oferece hoje com 2h de antecedência', async () => {
+    const svc = build([]);
+    const slots = await svc.freeSlots(brt('2026-10-20T11:10:00'), 1, 2);
+    expect(slots[0].startIso).toBe(brt('2026-10-20T14:00:00').toISOString());
+    expect(slots[0].label).toBe('hoje às 14h');
   });
 
   it('respeita o máximo pedido', async () => {

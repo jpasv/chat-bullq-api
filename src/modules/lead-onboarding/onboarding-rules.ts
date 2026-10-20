@@ -153,7 +153,7 @@ function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
 /** Convite pro diagnóstico em 2 balões, sem horário (o agente oferece quando ele responder). */
 function diagnosticOffer(nome: string): string[] {
   const oferta =
-    'como você é cliente, tem um diagnóstico de IA de 1h com o Pedro, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro';
+    'como você é cliente, tem um diagnóstico de IA de 1h com o Tiago, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro';
   return [nome ? `${nome}, ${oferta}` : capitalize(oferta), 'essa semana ainda tem horário, quer que eu separe um pra você?'];
 }
 
@@ -361,5 +361,5 @@ export const OFFICIAL_OUTREACH_NOTE = `
 Abordagem pela API oficial da Bravy (não é o WhatsApp do Tiago): as tentativas saíram como template e no histórico aparecem como [template].
 - Abertura: "Oi {nome}, aqui é da Bravy. Vi que você adquiriu o {produto}. Conseguiu começar? Se travou em alguma parte, me responde aqui que eu te ajudo."
 - Lembrete: "Oi {nome}, conseguiu dar uma olhada no {produto}? Se travou em alguma coisa, me responde aqui que eu te ajudo."
-- Última: "Oi {nome}, como cliente do {produto} você tem direito a um diagnóstico de 1h com o Pedro, sem custo, pra ver o que automatizar primeiro. Quer que eu separe um horário? É só responder aqui."
+- Última: "Oi {nome}, como cliente do {produto} você tem direito a um diagnóstico de 1h com o Tiago, sem custo, pra ver o que automatizar primeiro. Quer que eu separe um horário? É só responder aqui."
 - Retomada: "Oi {nome}, conseguiu ver minha última mensagem sobre o {produto}? Quando puder, me responde aqui."`;

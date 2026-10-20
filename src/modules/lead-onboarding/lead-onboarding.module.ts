@@ -20,7 +20,7 @@ import { ONBOARDING_TICK_QUEUE } from './lead-onboarding.constants';
 /**
  * Onboarding pós-venda: tag `abordar-ia` no Hoppe → 3 tentativas pelo
  * WhatsApp 1258 → assistente virtual qualifica e agenda o Diagnóstico de IA
- * com o Pedro. Exporta o service (hook de inbound) e a agenda (tools).
+ * com o Tiago. Exporta o service (hook de inbound) e a agenda (tools).
  */
 @Module({
   imports: [

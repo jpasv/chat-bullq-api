@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../../../database/prisma.service';
 import { RealtimeGateway } from '../../../realtime/realtime.gateway';
 import { PendingActionService } from '../../confirmations/pending-action.service';
 import { AiTool, ToolContext, ToolResult } from '../tool.types';
@@ -45,6 +46,7 @@ export class TransferToHumanTool implements AiTool {
   constructor(
     private readonly realtime: RealtimeGateway,
     private readonly pendingActions: PendingActionService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(
@@ -66,6 +68,15 @@ export class TransferToHumanTool implements AiTool {
       },
     };
 
+    // Onboarding pós-venda: o pedido não pode expirar em 30 min sem ninguém
+    // ver (caso Márcio, 20/10: 5 pedidos de cancelamento expiraram) e a IA
+    // para na hora, em vez de seguir prometendo "vou cuidar". O aviso vai pro
+    // canal do Hoppe e o pedido fica de pé por 24h.
+    const onboarding = await this.prisma.onboardingLead.findFirst({
+      where: { conversationId: ctx.conversationId },
+      select: { id: true },
+    });
+
     const action = await this.pendingActions.create({
       agentRunId: ctx.runId,
       conversationId: ctx.conversationId,
@@ -73,7 +84,15 @@ export class TransferToHumanTool implements AiTool {
       toolName: this.name,
       args: { reason, summary },
       preview,
+      ...(onboarding ? { ttlMinutes: 24 * 60 } : {}),
     });
+
+    if (onboarding) {
+      await this.prisma.conversation.update({
+        where: { id: ctx.conversationId },
+        data: { aiEnabled: false },
+      });
+    }
 
     // Notifica o operador imediatamente — ele revisa a fila de pendências
     // e aprova/rejeita. A pausa da IA acontece SOMENTE após aprovação,
