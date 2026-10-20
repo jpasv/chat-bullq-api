@@ -32,6 +32,8 @@ import {
   renderAfterSupport,
   revenueAbove500kYear,
   snapshotFromTask,
+  OFFICIAL_OUTREACH_NOTE,
+  productRef,
 } from './onboarding-rules';
 
 const HOUR = 3_600_000;
@@ -133,6 +135,7 @@ export class LeadOnboardingService {
         name: snapshot.name,
         email: snapshot.email,
         text: renderAttempt(1, snapshot),
+        template: this.template('abertura', snapshot),
       });
     } catch (err) {
       if (err instanceof HumanConversationError) {
@@ -147,7 +150,7 @@ export class LeadOnboardingService {
     await this.safe(() =>
       this.messenger.setPromptContext(
         sent.conversationId,
-        buildPromptContext(snapshot, { attempt: 1, state: 'CONTACTED' }),
+        buildPromptContext(snapshot, { attempt: 1, state: 'CONTACTED' }) + OFFICIAL_OUTREACH_NOTE,
       ),
     );
     await this.safe(() => this.hoppe.setAssignees(lead.hoppeTaskId, { add: [HOPPE_USER.CLAUDE] }));
@@ -165,14 +168,52 @@ export class LeadOnboardingService {
     const snapshot = this.snapshotOf(lead);
     if (!lead.phone || !lead.conversationId) return this.skip(lead, 'lead sem telefone/conversa resolvidos');
     if (await this.blockedByConversation(lead, now)) return;
+    const template = this.template(attempt === 2 ? 'lembrete' : 'ultima', snapshot);
+
+    // Lead que nunca respondeu e foi abordado pelo 1258: a próxima tentativa
+    // sai pelo canal de abordagem (API oficial), numa conversa nova.
+    const outreach = this.messenger.outreachChannelId();
+    if ((await this.messenger.channelOf(lead.conversationId)) !== outreach) {
+      const target = await this.messenger.resolveTarget(snapshot.phone ?? lead.phone);
+      if (!target) return this.skip(lead, 'número sem WhatsApp no canal de abordagem');
+      let sent: { conversationId: string; contactId: string };
+      try {
+        sent = await this.messenger.send({
+          target,
+          name: snapshot.name,
+          email: snapshot.email,
+          text: renderAttempt(attempt, snapshot),
+          template,
+        });
+      } catch (err) {
+        if (err instanceof HumanConversationError) return this.skip(lead, 'conversa com o time no canal oficial, abordagem manual');
+        throw err;
+      }
+      await this.safe(() =>
+        this.messenger.setPromptContext(
+          sent.conversationId,
+          buildPromptContext(snapshot, { attempt, state: 'CONTACTED' }) + OFFICIAL_OUTREACH_NOTE,
+        ),
+      );
+      await this.afterAttempt(lead, attempt, now, { conversationId: sent.conversationId, contactId: sent.contactId });
+      return;
+    }
+
     await this.messenger.send({
-      target: { digits: lead.phone, jid: `${lead.phone}@s.whatsapp.net` },
+      target: { digits: lead.phone, jid: lead.phone },
       name: snapshot.name,
       email: snapshot.email,
       text: renderAttempt(attempt, snapshot),
+      template,
       conversationId: lead.conversationId,
     });
     await this.afterAttempt(lead, attempt, now, {});
+  }
+
+  /** Template HSM da API oficial: {{1}} primeiro nome, {{2}} produto. */
+  private template(kind: 'abertura' | 'lembrete' | 'ultima' | 'retomada', snapshot: LeadSnapshot) {
+    const produto = (productRef(snapshot.produto) ?? 'nosso curso').replace(/^o /, '');
+    return { name: this.config.templates[kind], vars: [snapshot.firstName?.trim() || 'tudo bem', produto] };
   }
 
   private async afterAttempt(
@@ -269,6 +310,7 @@ export class LeadOnboardingService {
       target: { digits: lead.phone, jid: `${lead.phone}@s.whatsapp.net` },
       name: null,
       email: null,
+      template: this.template('retomada', snapshot),
       text: fromSupport ? renderAfterSupport(snapshot) : specific ?? renderSilentFollowup(n, snapshot),
       conversationId: lead.conversationId,
     });

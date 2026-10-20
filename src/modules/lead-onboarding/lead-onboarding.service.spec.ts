@@ -70,8 +70,11 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     pauseConversation: jest.fn().mockResolvedValue(undefined),
     hasRecentSystemOutbound: jest.fn().mockResolvedValue(false),
     conversationGuard: jest.fn().mockResolvedValue(null),
+    outreachChannelId: jest.fn().mockReturnValue('oficial'),
+    channelOf: jest.fn().mockResolvedValue('oficial'),
   };
   const config = {
+    templates: { abertura: 'brvy_onb_abertura', lembrete: 'brvy_onb_lembrete', ultima: 'brvy_onb_ultima', retomada: 'brvy_onb_retomada' },
     enabled: true,
     orgId: 'org1',
     cadenceHours: [4, 24, 24],
@@ -151,6 +154,18 @@ describe('LeadOnboardingService.tick', () => {
     await service.tick(brt('2026-10-18T10:00:00'));
     expect(repo.update.mock.calls.at(-1)![1].state).toBe('SKIPPED');
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('conversa existente'));
+  });
+
+  it('lead abordado pelo 1258 recebe a 2ª pela API oficial, em conversa nova', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1258', phone: '5511975286081', snapshot: { firstName: 'Mayara', phone: '5511975286081', produto: '57 Agents Advocacia' } });
+    const { service, messenger, repo } = build({ lead });
+    messenger.channelOf.mockResolvedValue('canal1258');
+    messenger.send.mockResolvedValue({ conversationId: 'convOficial', contactId: 'ct2' });
+    await service.tick(brt('2026-10-20T10:00:00'));
+    const arg = messenger.send.mock.calls[0][0];
+    expect(arg.conversationId).toBeUndefined();
+    expect(arg.template).toEqual({ name: 'brvy_onb_lembrete', vars: ['Mayara', '57 Agents Advocacia'] });
+    expect(repo.update.mock.calls.at(-1)![1].conversationId).toBe('convOficial');
   });
 
   it('CONTACTED attempt 1 vencido manda a 2ª', async () => {

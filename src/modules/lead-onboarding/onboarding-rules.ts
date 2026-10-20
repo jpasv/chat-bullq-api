@@ -351,3 +351,15 @@ export function isAcknowledgement(text: string | null | undefined): boolean {
   const words = t.split(/[\s,.!…]+/u).filter(Boolean);
   return words.length > 0 && words.every((w) => ACK_WORDS.has(w));
 }
+
+/**
+ * Nota no contexto do agente quando a abordagem saiu pela API oficial: o
+ * histórico mostra só "[template]", então o agente precisa saber o que foi dito.
+ */
+export const OFFICIAL_OUTREACH_NOTE = `
+
+Abordagem pela API oficial da Bravy (não é o WhatsApp do Tiago): as tentativas saíram como template e no histórico aparecem como [template].
+- Abertura: "Oi {nome}, aqui é da Bravy. Vi que você adquiriu o {produto}. Conseguiu começar? Se travou em alguma parte, me responde aqui que eu te ajudo."
+- Lembrete: "Oi {nome}, conseguiu dar uma olhada no {produto}? Se travou em alguma coisa, me responde aqui que eu te ajudo."
+- Última: "Oi {nome}, como cliente do {produto} você tem direito a um diagnóstico de 1h com o Pedro, sem custo, pra ver o que automatizar primeiro. Quer que eu separe um horário? É só responder aqui."
+- Retomada: "Oi {nome}, conseguiu ver minha última mensagem sobre o {produto}? Quando puder, me responde aqui."`;
