@@ -99,6 +99,13 @@ export class HoppeLeadsClient {
     await this.request('PUT', `/api/v2/task/${taskId}`, body);
   }
 
+  /** Responsáveis da task (o PUT do Hoppe usa add/rem). */
+  async setAssignees(taskId: string, change: { add?: string[]; rem?: string[] }): Promise<void> {
+    await this.request('PUT', `/api/v2/task/${taskId}`, {
+      assignees: { add: change.add ?? [], rem: change.rem ?? [] },
+    });
+  }
+
   async removeTag(taskId: string, tagName: string): Promise<void> {
     await this.request('DELETE', `/api/v2/task/${taskId}/tag/${encodeURIComponent(tagName)}`);
   }

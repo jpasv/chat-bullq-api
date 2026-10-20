@@ -13,6 +13,7 @@ import {
   ATTEMPT_TAGS,
   HOPPE_FIELD,
   HOPPE_STATUS,
+  HOPPE_USER,
   HOPPE_STATUS_NAME_NOVA,
   HUMAN_TAG,
   MAX_SILENT_FOLLOWUPS,
@@ -149,6 +150,7 @@ export class LeadOnboardingService {
         buildPromptContext(snapshot, { attempt: 1, state: 'CONTACTED' }),
       ),
     );
+    await this.safe(() => this.hoppe.setAssignees(lead.hoppeTaskId, { add: [HOPPE_USER.CLAUDE] }));
     await this.afterAttempt(lead, 1, now, {
       conversationId: sent.conversationId,
       contactId: sent.contactId,
@@ -512,6 +514,9 @@ export class LeadOnboardingService {
     const start = new Date(meeting.startIso);
     await this.syncDates(lead, start, new Date(start.getTime() + MEETING_MS));
     await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.REUNIAO_AGENDADA));
+    await this.safe(() =>
+      this.hoppe.setAssignees(lead.hoppeTaskId, { add: [HOPPE_USER.TIAGO], rem: [HOPPE_USER.CLAUDE] }),
+    );
     await this.safe(() =>
       this.hoppe.addComment(
         lead.hoppeTaskId,
