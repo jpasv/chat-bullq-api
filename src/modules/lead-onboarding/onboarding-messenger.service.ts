@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import axios from 'axios';
 import {
+  ChannelType,
   ConversationStatus,
   MessageContentType,
   MessageDirection,
@@ -43,6 +44,14 @@ const OPEN_STATUSES = [
 ];
 
 const HUMAN_LOOKBACK_DAYS = 30;
+/** Janela de atendimento da Meta (24h) com folga: fora dela só sai template. */
+const SESSION_WINDOW_MS = 23 * 3600 * 1000;
+
+/** Template HSM aprovado: 2 variáveis no corpo ({{1}} nome, {{2}} produto). */
+export interface OnboardingTemplate {
+  name: string;
+  vars: string[];
+}
 
 /**
  * Envio proativo das tentativas no canal Zappfy do onboarding. Mesmo caminho
@@ -65,8 +74,36 @@ export class OnboardingMessengerService {
     @InjectQueue('outbound-messages') private readonly outboundQueue: Queue,
   ) {}
 
-  /** JID real do número no WhatsApp, ou null se o número não tem WhatsApp. */
+  /**
+   * Canal onde um lead novo é abordado. Desde 20/10 é a API oficial (o 1258
+   * do Tiago foi restringido pelo WhatsApp por volume de conversas novas);
+   * conversa que já existe segue no canal dela.
+   */
+  outreachChannelId(): string {
+    return this.config.outreachChannelId ?? this.requireConfig('channelId');
+  }
+
+  async channelOf(conversationId: string): Promise<string | null> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { channelId: true },
+    });
+    return conv?.channelId ?? null;
+  }
+
+  async isOfficial(channelId: string): Promise<boolean> {
+    const ch = await this.prisma.channel.findUnique({ where: { id: channelId }, select: { type: true } });
+    return ch?.type === ChannelType.WHATSAPP_OFFICIAL;
+  }
+
+  /**
+   * Destino do lead no canal de abordagem. Zappfy: JID real do `/chat/check`
+   * (null = número sem WhatsApp). API oficial: os dígitos do telefone; a Meta
+   * resolve o número e devolve erro na entrega se não tiver WhatsApp.
+   */
   async resolveTarget(phone: string): Promise<WhatsAppTarget | null> {
+    const digits = phone.replace(/\D/g, '');
+    if (await this.isOfficial(this.outreachChannelId())) return { digits, jid: digits };
     const token = await this.channelToken();
     const resp = await axios.post(
       'https://api.zappfy.io/chat/check',
@@ -89,22 +126,45 @@ export class OnboardingMessengerService {
     email: string | null;
     /** Uma mensagem ou várias, enviadas em sequência (balões separados). */
     text: string | string[];
+    /** Na API oficial fora da janela de 24h só sai template: este. */
+    template?: OnboardingTemplate | null;
     conversationId?: string | null;
   }): Promise<{ conversationId: string; contactId: string }> {
     const organizationId = this.requireConfig('orgId');
-    const channelId = this.requireConfig('channelId');
-    const contactId = await this.resolveContact(organizationId, channelId, params);
+    const channelId = params.conversationId
+      ? ((await this.channelOf(params.conversationId)) ?? this.outreachChannelId())
+      : this.outreachChannelId();
+    const official = await this.isOfficial(channelId);
+    // Na API oficial o contato é identificado pelos dígitos, não por JID.
+    const target = official ? { digits: params.target.digits, jid: params.target.digits } : params.target;
+    const contactId = await this.resolveContact(organizationId, channelId, { ...params, target });
 
     const conversationId =
       params.conversationId ??
-      (await this.ensureConversation(organizationId, channelId, contactId));
+      (await this.ensureConversation(organizationId, channelId, contactId, official));
+
+    if (official && !(await this.inSession(conversationId))) {
+      if (!params.template) throw new Error('API oficial fora da janela de 24h exige template');
+      await this.enqueue(channelId, contactId, conversationId, target.jid, null, 0, params.template);
+      return { conversationId, contactId };
+    }
 
     const texts = (Array.isArray(params.text) ? params.text : [params.text]).filter((t) => t.trim());
     for (const [i, text] of texts.entries()) {
       // Atraso crescente garante a ordem dos balões na fila de saída.
-      await this.enqueue(channelId, contactId, conversationId, params.target.jid, text, i * MULTI_MESSAGE_GAP_MS);
+      await this.enqueue(channelId, contactId, conversationId, target.jid, text, i * MULTI_MESSAGE_GAP_MS);
     }
     return { conversationId, contactId };
+  }
+
+  /** O lead escreveu nas últimas ~24h (texto livre permitido na API oficial)? */
+  private async inSession(conversationId: string): Promise<boolean> {
+    const last = await this.prisma.message.findFirst({
+      where: { conversationId, direction: MessageDirection.INBOUND },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return !!last && Date.now() - last.createdAt.getTime() < SESSION_WINDOW_MS;
   }
 
   /** Grava o bloco "Contexto do lead" lido pelo prompt-builder. */
@@ -333,6 +393,7 @@ export class OnboardingMessengerService {
     organizationId: string,
     channelId: string,
     contactId: string,
+    official = false,
   ): Promise<string> {
     // SQL cru de propósito: o filtro JSON do Prisma (`NOT {metadata: {path,
     // equals}}`) descarta linhas SEM `source` (NULL), que são justamente as
@@ -347,6 +408,9 @@ export class OnboardingMessengerService {
         AND m.created_at >= ${since}
         AND m.type::text <> 'SYSTEM'
         AND (m.metadata->>'source') IS DISTINCT FROM ${ATTEMPT_MESSAGE_SOURCE}
+        -- API oficial: o número é da Bravy e já recebeu campanhas/recuperação;
+        -- só conta conversa de gente do time (mensagem enviada pela tela).
+        AND (${official} = false OR m.sender_id IS NOT NULL)
       LIMIT 1
     `;
     if (rows.length > 0) throw new HumanConversationError(rows[0].conversation_id);
@@ -395,15 +459,25 @@ export class OnboardingMessengerService {
     contactId: string,
     conversationId: string,
     externalId: string,
-    text: string,
+    text: string | null,
     delayMs = 0,
+    template?: OnboardingTemplate,
   ): Promise<void> {
-    const content = { text };
+    const type = template ? MessageContentType.TEMPLATE : MessageContentType.TEXT;
+    const content: Prisma.InputJsonValue = template
+      ? {
+          name: template.name,
+          language: { code: this.config.templateLang },
+          components: [
+            { type: 'body', parameters: template.vars.map((v) => ({ type: 'text', text: v.trim() || '-' })) },
+          ],
+        }
+      : { text: text ?? '' };
     const message = await this.prisma.message.create({
       data: {
         conversationId,
         direction: MessageDirection.OUTBOUND,
-        type: MessageContentType.TEXT,
+        type,
         content,
         status: MessageStatus.QUEUED,
         senderName: 'Assistente do Tiago',
@@ -422,7 +496,7 @@ export class OnboardingMessengerService {
         messageId: message.id,
         channelId,
         contactExternalId: externalId,
-        message: { type: MessageContentType.TEXT, content },
+        message: { type, content },
       },
       { attempts: 3, backoff: { type: 'exponential', delay: 5_000 }, delay: delayMs, removeOnComplete: true, removeOnFail: false },
     );

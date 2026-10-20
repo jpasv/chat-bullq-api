@@ -22,6 +22,28 @@ export class LeadOnboardingConfigService {
     return this.config.get<string>('ONBOARDING_CHANNEL_ID') ?? null;
   }
 
+  /**
+   * Canal pra abordar lead novo (API oficial desde 20/10). Sem ele, usa o
+   * canal do onboarding (1258).
+   */
+  get outreachChannelId(): string | null {
+    return this.config.get<string>('ONBOARDING_OUTREACH_CHANNEL_ID') ?? null;
+  }
+
+  /** Templates HSM aprovados na WABA do canal de abordagem. */
+  get templates(): { abertura: string; lembrete: string; ultima: string; retomada: string } {
+    return {
+      abertura: this.config.get<string>('ONBOARDING_TEMPLATE_ABERTURA') ?? 'brvy_onb_abertura',
+      lembrete: this.config.get<string>('ONBOARDING_TEMPLATE_LEMBRETE') ?? 'brvy_onb_lembrete',
+      ultima: this.config.get<string>('ONBOARDING_TEMPLATE_ULTIMA') ?? 'brvy_onb_ultima',
+      retomada: this.config.get<string>('ONBOARDING_TEMPLATE_RETOMADA') ?? 'brvy_onb_retomada',
+    };
+  }
+
+  get templateLang(): string {
+    return this.config.get<string>('ONBOARDING_TEMPLATE_LANG') ?? 'pt_BR';
+  }
+
   get agentId(): string | null {
     return this.config.get<string>('ONBOARDING_AGENT_ID') ?? null;
   }
