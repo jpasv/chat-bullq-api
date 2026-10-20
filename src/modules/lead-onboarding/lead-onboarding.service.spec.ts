@@ -71,10 +71,11 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     hasRecentSystemOutbound: jest.fn().mockResolvedValue(false),
     conversationGuard: jest.fn().mockResolvedValue(null),
     outreachChannelId: jest.fn().mockReturnValue('oficial'),
+    transcript: jest.fn().mockResolvedValue('Lead: oi'),
     channelOf: jest.fn().mockResolvedValue('oficial'),
   };
   const config = {
-    templates: { abertura: 'brvy_onb_abertura', lembrete: 'brvy_onb_lembrete', ultima: 'brvy_onb_ultima', retomada: 'brvy_onb_retomada' },
+    templates: { abertura: 'brvy_onb_abertura', lembrete: 'brvy_onb_lembrete', ultima: 'brvy_onb_ultima', retomada: 'brvy_onb_retomada', continuacao: 'brvy_onb_continuacao' },
     enabled: true,
     orgId: 'org1',
     cadenceHours: [4, 24, 24],
@@ -166,6 +167,19 @@ describe('LeadOnboardingService.tick', () => {
     expect(arg.conversationId).toBeUndefined();
     expect(arg.template).toEqual({ name: 'brvy_onb_lembrete', vars: ['Mayara', '57 Agents Advocacia'] });
     expect(repo.update.mock.calls.at(-1)![1].conversationId).toBe('convOficial');
+  });
+
+  it('retomada de conversa no 1258 migra pro oficial com template de continuação e histórico', async () => {
+    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1258', phone: '5511975286081', snapshot: { firstName: 'Mayara', phone: '5511975286081', produto: '57 Agents Advocacia' } });
+    const { service, messenger, repo } = build({ lead });
+    (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
+    messenger.channelOf.mockResolvedValue('canal1258');
+    messenger.send.mockResolvedValue({ conversationId: 'convOficial', contactId: 'ct2' });
+    await service.tick(brt('2026-10-20T10:00:00'));
+    expect(messenger.send.mock.calls[0][0].template.name).toBe('brvy_onb_continuacao');
+    expect(messenger.setPromptContext.mock.calls[0][1]).toContain('Lead: oi');
+    expect(messenger.pauseConversation).toHaveBeenCalledWith('conv1258');
+    expect(repo.update.mock.calls.some(([, d]: any) => d.conversationId === 'convOficial')).toBe(true);
   });
 
   it('CONTACTED attempt 1 vencido manda a 2ª', async () => {

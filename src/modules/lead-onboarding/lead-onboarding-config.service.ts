@@ -31,8 +31,9 @@ export class LeadOnboardingConfigService {
   }
 
   /** Templates HSM aprovados na WABA do canal de abordagem. */
-  get templates(): { abertura: string; lembrete: string; ultima: string; retomada: string } {
+  get templates(): { abertura: string; lembrete: string; ultima: string; retomada: string; continuacao: string } {
     return {
+      continuacao: this.config.get<string>('ONBOARDING_TEMPLATE_CONTINUACAO') ?? 'brvy_onb_continuacao',
       abertura: this.config.get<string>('ONBOARDING_TEMPLATE_ABERTURA') ?? 'brvy_onb_abertura',
       lembrete: this.config.get<string>('ONBOARDING_TEMPLATE_LEMBRETE') ?? 'brvy_onb_lembrete',
       ultima: this.config.get<string>('ONBOARDING_TEMPLATE_ULTIMA') ?? 'brvy_onb_ultima',
