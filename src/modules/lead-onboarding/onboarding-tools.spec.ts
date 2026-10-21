@@ -112,8 +112,12 @@ describe('tools do onboarding', () => {
   it('qualificado com faturamento abaixo do corte é recusado', async () => {
     const { svc } = realService(lead());
     const tool = new RegistrarQualificacaoTool(svc);
-    const r: any = (await tool.execute({ resultado: 'qualificado', motivo: 'x', faturamentoConfirmado: 'R$ 10.000 a R$ 50.000' }, ctx)).output;
+    const r: any = (await tool.execute({ resultado: 'qualificado', motivo: 'x', faturamentoConfirmado: 'R$ 10.000 a R$ 50.000', faturamentoValor: 30000 }, ctx)).output;
     expect(r).toMatchObject({ ok: false, error: 'faturamento_abaixo_do_corte' });
+    const sem: any = (await tool.execute({ resultado: 'qualificado', motivo: 'x', faturamentoConfirmado: 'R$ 10.000 a R$ 50.000' }, ctx)).output;
+    expect(sem).toMatchObject({ ok: false, error: 'falta_valor_faturamento' });
+    const ok: any = (await tool.execute({ resultado: 'qualificado', motivo: 'x', faturamentoConfirmado: 'R$ 10.000 a R$ 50.000', faturamentoValor: 40000 }, ctx)).output;
+    expect(ok).toMatchObject({ ok: true });
   });
 
   it('qualificado grava a qualificação no snapshot', async () => {
