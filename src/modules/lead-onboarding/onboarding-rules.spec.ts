@@ -6,7 +6,6 @@ import {
   stripTrailingPeriod,
   firstName,
   isLikelyAutoReply,
-  isRio,
   LeadSnapshot,
   nextAttemptDelayHours,
   renderAttempt,
@@ -60,15 +59,6 @@ describe('nextAttemptDelayHours', () => {
     expect(nextAttemptDelayHours(2, [4, 24, 24])).toBe(24);
     expect(nextAttemptDelayHours(3, [4, 24, 24])).toBe(24);
     expect(nextAttemptDelayHours(4, [4, 24, 24])).toBeNull();
-  });
-});
-
-describe('isRio', () => {
-  it('DDD 21 é Rio', () => {
-    expect(isRio('5521990451258')).toBe(true);
-    expect(isRio('+55 (21) 99045-1258')).toBe(true);
-    expect(isRio('5511975286081')).toBe(false);
-    expect(isRio(null)).toBe(false);
   });
 });
 

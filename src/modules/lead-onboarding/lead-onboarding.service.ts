@@ -23,14 +23,13 @@ import {
   adjustToSendWindow,
   buildPromptContext,
   isLikelyAutoReply,
-  isRio,
   LeadSnapshot,
   nextAttemptDelayHours,
   renderAttempt,
   renderResume,
   renderSilentFollowup,
   renderAfterSupport,
-  revenueAbove500kYear,
+  revenueAbove200kMonth,
   snapshotFromTask,
   OFFICIAL_OUTREACH_NOTE,
   productRef,
@@ -59,6 +58,8 @@ export interface QualificationInput {
   equipe?: string | null;
   folhaMensal?: string | null;
   investimentoSoftware?: string | null;
+  /** fazer por mim | aprender a construir | treinar alguém da equipe */
+  perfil?: string | null;
 }
 
 /**
@@ -576,6 +577,7 @@ export class LeadOnboardingService {
       `equipe: ${input.equipe ?? 'não informada'}`,
       `folha mensal: ${input.folhaMensal ?? 'não informada'}`,
       `investimento em softwares: ${input.investimentoSoftware ?? 'não informado'}`,
+      `perfil: ${input.perfil ?? 'não informado'}`,
     ].join('; ');
 
     if (input.resultado === 'desqualificado') {
@@ -614,7 +616,7 @@ export class LeadOnboardingService {
     await this.safe(() =>
       this.hoppe.addComment(
         lead.hoppeTaskId,
-        `Qualificado para o Diagnóstico de IA em ${fmt(now)}. ${input.motivo}. Dados: ${dados}. Oferta sugerida pro Tiago: ${suggestedOffer(snapshot.phone, faixa)}.`,
+        `Qualificado para o Diagnóstico de IA em ${fmt(now)}. ${input.motivo}. Dados: ${dados}. Oferta sugerida pro Tiago: ${suggestedOffer(input, faixa)}.`,
       ),
     );
   }
@@ -725,10 +727,28 @@ export class LeadOnboardingService {
   }
 }
 
-/** Oferta que o Tiago deve levar pro diagnóstico (anotação interna, nunca pro cliente). */
-export function suggestedOffer(phone: string | null, faixa: string | null): string {
-  if (!revenueAbove500kYear(faixa)) return 'Tiago decide na reunião (faturamento abaixo de R$ 500k/ano ou não confirmado)';
-  return isRio(phone) ? 'evento presencial (Rio, acima de R$ 500k/ano)' : 'Maestria (fora do Rio, acima de R$ 500k/ano)';
+const IMPLEMENTACAO = 'Implementação (R$ 35 mil): fazemos por ele';
+const MAESTRIA = 'Mentoria Maestr.IA (R$ 17 mil): ele ou alguém do time aprende a construir';
+
+/**
+ * Oferta que o Tiago leva pra reunião (anotação interna, nunca pro cliente).
+ * Quem quer que façam e tem dinheiro → Implementação; quem quer aprender,
+ * criar nova fonte de renda ou treinar alguém do time → Maestr.IA.
+ */
+export function suggestedOffer(
+  q: Pick<QualificationInput, 'perfil' | 'chatOuCode' | 'desenvolveSistemas'>,
+  faixa: string | null,
+): string {
+  const perfil = (q.perfil ?? '').toLowerCase();
+  const altoFaturamento = revenueAbove200kMonth(faixa);
+  if (/aprender|construir|treinar|renda/.test(perfil)) return MAESTRIA;
+  if (/fa(z|ç)a|por mim|fazer/.test(perfil)) {
+    return altoFaturamento ? IMPLEMENTACAO : `${IMPLEMENTACAO} (faturamento abaixo de R$ 200 mil/mês: confirmar orçamento)`;
+  }
+  const constroi = /code/.test(q.chatOuCode ?? '') || (!!q.desenvolveSistemas && !/^n(ã|a)o/i.test(q.desenvolveSistemas));
+  if (constroi) return `${MAESTRIA} (já constrói; perfil não confirmado)`;
+  if (altoFaturamento) return `${IMPLEMENTACAO} (faturamento alto; perfil não confirmado)`;
+  return 'Tiago decide na reunião: perguntar se quer que façam (Implementação) ou aprender a construir (Maestr.IA)';
 }
 
 function startOfBrtDay(at: Date): Date {

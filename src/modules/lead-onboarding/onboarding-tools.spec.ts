@@ -85,12 +85,20 @@ describe('tools do onboarding', () => {
     expect(hoppe.setStatus).toHaveBeenCalledWith(TASK, HOPPE_STATUS.DESQUALIFICADO);
   });
 
-  it('qualificado no Rio acima de 500k/ano sugere presencial no comentário', async () => {
+  it('quem quer que façam e fatura alto recebe Implementação como oferta sugerida', async () => {
     const { svc, hoppe } = realService(lead());
     const tool = new RegistrarQualificacaoTool(svc);
-    await tool.execute({ resultado: 'qualificado', motivo: 'decide sozinho, prioridade alta', decisor: true, faturamentoConfirmado: 'Acima de R$ 1 milhão' }, ctx);
+    await tool.execute({ resultado: 'qualificado', motivo: 'decide sozinho', decisor: true, faturamentoConfirmado: 'Acima de R$ 1 milhão', perfil: 'fazer por mim' }, ctx);
     expect(hoppe.setStatus).not.toHaveBeenCalled();
-    expect(hoppe.addComment.mock.calls[0][1]).toContain('presencial');
+    expect(hoppe.addComment.mock.calls[0][1]).toContain('Implementação (R$ 35 mil)');
+    expect(hoppe.addComment.mock.calls[0][1]).not.toMatch(/presencial/i);
+  });
+
+  it('quem quer aprender recebe Maestr.IA como oferta sugerida', async () => {
+    const { svc, hoppe } = realService(lead());
+    const tool = new RegistrarQualificacaoTool(svc);
+    await tool.execute({ resultado: 'qualificado', motivo: 'x', faturamentoConfirmado: 'R$ 50.000 a R$ 200.000', perfil: 'aprender a construir' }, ctx);
+    expect(hoppe.addComment.mock.calls[0][1]).toContain('Mentoria Maestr.IA (R$ 17 mil)');
   });
 
   it('qualificado sem faturamento confirmado é recusado', async () => {
