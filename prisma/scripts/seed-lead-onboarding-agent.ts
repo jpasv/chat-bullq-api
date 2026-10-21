@@ -47,7 +47,7 @@ Registre tudo em registrarQualificacao (maiorDor, usoIA, chatOuCode, desenvolveS
 
 Resultado:
 - Faturamento confirmado de R$ 50 mil/mês pra cima e sócios/decisores na chamada: registrarQualificacao = qualificado. SÓ DEPOIS disso chame consultarHorariosDiagnostico e convide.
-- Abaixo de R$ 50 mil/mês: registrarQualificacao = desqualificado. Não convide; siga ajudando com o produto.
+- Abaixo de R$ 50 mil/mês: registrarQualificacao = desqualificado. Não convide pro diagnóstico. Em vez disso, convide pra aula ao vivo de hoje às 20h, que entra pelo grupo dos alunos: "hoje às 20h tem aula ao vivo, vale muito a pena pra você começar. o link sai no grupo dos alunos, entra por aqui: https://grupos-api.bravy.com.br/g/alunos-agents". Se já passou das 20h, convide pra próxima aula, com o mesmo link. Depois siga ajudando com o produto.
 - Não quis informar o faturamento: pergunte de novo uma vez, explicando que é só pro Tiago preparar a conversa. Se ainda assim não disser, não convide e chame transferToHuman com o motivo "lead sem faturamento, decidir se agenda".
 - Sócio precisa participar e ainda não confirmou: registrarQualificacao = aguardando_socios.
 Se o lead pedir horário antes de terminar ("pode agendar"), diga que já vê a agenda e faça a pergunta que falta.

@@ -148,9 +148,11 @@ function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
     const corpo = 'conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo';
     return [nome ? `${nome}, ${corpo}` : capitalize(corpo)];
   }
-  // Última tentativa leva a oferta: quem não respondeu "conseguiu mexer?"
-  // às vezes responde a um convite concreto (pedido de 19/10, meta de 3/dia).
-  return diagnosticOffer(nome);
+  // Última tentativa: nada de convite (só depois de qualificar, pedido de
+  // 21/10). Faz a P1 da qualificação, que é fácil de responder.
+  const ultima =
+    'última mensagem por aqui pra não encher: se a IA pudesse tirar uma tarefa das suas costas amanhã, qual seria? me conta que eu te ajudo a começar por ela';
+  return [nome ? `${nome}, ${ultima}` : capitalize(ultima)];
 }
 
 /** Quem comprou a consultoria de 90 min: o assunto é marcar a consultoria. */
@@ -163,13 +165,6 @@ function consultoriaAttempt(attempt: 1 | 2 | 3, nome: string): string[] {
   }
   const corpo = 'sua consultoria de 90 min tá esperando um horário. me fala o melhor dia pra você que eu encaixo';
   return [nome ? `${nome}, ${corpo}` : capitalize(corpo)];
-}
-
-/** Convite pro diagnóstico em 2 balões, sem horário (o agente oferece quando ele responder). */
-function diagnosticOffer(nome: string): string[] {
-  const oferta =
-    'como você é cliente, tem um diagnóstico de IA de 1h com o Tiago, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro';
-  return [nome ? `${nome}, ${oferta}` : capitalize(oferta), 'essa semana ainda tem horário, quer que eu separe um pra você?'];
 }
 
 function openerBody(progresso: string | null, ref: string | null): string {
@@ -223,7 +218,7 @@ export function isLikelyAutoReply(text: string | null, lastAttemptAt: Date | nul
  */
 export function renderSilentFollowup(n: 1 | 2, lead: LeadSnapshot): string | string[] {
   const nome = lead.firstName?.trim() ?? '';
-  if (n === 2) return diagnosticOffer(nome);
+  if (n === 2) return capitalize(`${nome ? `${nome}, ` : ''}vou deixar quieto por aqui por enquanto, tá? quando quiser continuar é só me responder`);
   return capitalize(`${nome ? `${nome}, ` : ''}conseguiu ver minha última mensagem?`);
 }
 
