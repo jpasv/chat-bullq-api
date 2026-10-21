@@ -51,6 +51,10 @@ export interface QualificationInput {
   prioridade?: string | null;
   decisor?: boolean | null;
   socios?: string[] | null;
+  usoIA?: string | null;
+  equipe?: string | null;
+  folhaMensal?: string | null;
+  investimentoSoftware?: string | null;
 }
 
 /**
@@ -560,6 +564,10 @@ export class LeadOnboardingService {
       `decisor: ${input.decisor === true ? 'sim' : input.decisor === false ? 'não' : 'não informado'}`,
       `sócios: ${input.socios?.length ? input.socios.join(', ') : 'nenhum informado'}`,
       `prioridade: ${input.prioridade ?? 'não informada'}`,
+      `uso de IA hoje: ${input.usoIA ?? 'não informado'}`,
+      `equipe: ${input.equipe ?? 'não informada'}`,
+      `folha mensal: ${input.folhaMensal ?? 'não informada'}`,
+      `investimento em softwares: ${input.investimentoSoftware ?? 'não informado'}`,
     ].join('; ');
 
     if (input.resultado === 'desqualificado') {

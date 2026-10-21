@@ -38,6 +38,10 @@ export class RegistrarQualificacaoTool implements AiTool {
       prioridade: { type: 'string', enum: ['baixa', 'media', 'alta'] },
       decisor: { type: 'boolean' },
       socios: { type: 'array', items: { type: 'string' }, maxItems: 8, description: 'Nomes dos sócios.' },
+      usoIA: { type: 'string', maxLength: 300, description: 'Como usa IA hoje: ferramentas e pra quê, com as palavras do cliente (ex.: "ChatGPT pra redigir contrato").' },
+      equipe: { type: 'string', maxLength: 100, description: 'Quantas pessoas trabalham na empresa, como o cliente disse (ex.: "8 pessoas").' },
+      folhaMensal: { type: 'string', maxLength: 100, description: 'Média da folha salarial mensal, como o cliente disse (ex.: "uns R$ 40 mil").' },
+      investimentoSoftware: { type: 'string', maxLength: 100, description: 'Quanto investe por mês em sistemas/softwares (ex.: "R$ 2 mil").' },
     },
   };
 
@@ -70,6 +74,10 @@ export class RegistrarQualificacaoTool implements AiTool {
       prioridade: (input.prioridade as string) ?? null,
       decisor: typeof input.decisor === 'boolean' ? input.decisor : null,
       socios: Array.isArray(input.socios) ? input.socios.map(String) : null,
+      usoIA: typeof input.usoIA === 'string' ? input.usoIA : null,
+      equipe: typeof input.equipe === 'string' ? input.equipe : null,
+      folhaMensal: typeof input.folhaMensal === 'string' ? input.folhaMensal : null,
+      investimentoSoftware: typeof input.investimentoSoftware === 'string' ? input.investimentoSoftware : null,
     });
     return { output: { ok: true, resultado } };
   }
