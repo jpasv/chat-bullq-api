@@ -71,6 +71,7 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     hasRecentSystemOutbound: jest.fn().mockResolvedValue(false),
     conversationGuard: jest.fn().mockResolvedValue(null),
     outreachChannelId: jest.fn().mockReturnValue('oficial'),
+    isOfficial: jest.fn().mockResolvedValue(true),
     transcript: jest.fn().mockResolvedValue('Lead: oi'),
     channelOf: jest.fn().mockResolvedValue('oficial'),
   };
@@ -157,12 +158,24 @@ describe('LeadOnboardingService.tick', () => {
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('conversa existente'));
   });
 
-  it('lead começado pelo 1258 continua no 1258 (texto, mesma conversa)', async () => {
-    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1258', phone: '5511975286081', snapshot: { firstName: 'Mayara', phone: '5511975286081', produto: '57 Agents Advocacia' } });
-    const { service, messenger } = build({ lead });
-    messenger.channelOf.mockResolvedValue('canal1258');
+  it('lead com conversa em outro canal recebe a tentativa pelo canal de abordagem, em conversa nova', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'convOutro', phone: '5511975286081', snapshot: { firstName: 'Mayara', phone: '5511975286081', produto: '57 Agents Advocacia' } });
+    const { service, messenger, repo } = build({ lead });
+    messenger.channelOf.mockResolvedValue('outroCanal');
+    messenger.send.mockResolvedValue({ conversationId: 'convNova', contactId: 'ct2' });
     await service.tick(brt('2026-10-20T10:00:00'));
-    expect(messenger.send.mock.calls[0][0].conversationId).toBe('conv1258');
+    expect(messenger.send.mock.calls[0][0].conversationId).toBeUndefined();
+    expect(messenger.pauseConversation).toHaveBeenCalledWith('convOutro');
+    expect(repo.update.mock.calls.at(-1)![1].conversationId).toBe('convNova');
+  });
+
+  it('respeita o teto de leads por tick', async () => {
+    const leads = [leadRow({ id: 'a' }), leadRow({ id: 'b' }), leadRow({ id: 'c' })];
+    const { service, repo, messenger, config } = build() as any;
+    repo.findDue.mockResolvedValue(leads);
+    config.maxSendsPerTick = 2;
+    await service.tick(brt('2026-10-18T16:00:00'));
+    expect(messenger.send).toHaveBeenCalledTimes(2);
   });
 
   it('1258 restringido: ação na conversa de lá só reagenda pro fim da restrição', async () => {

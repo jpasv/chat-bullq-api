@@ -30,6 +30,12 @@ export class LeadOnboardingConfigService {
     return this.config.get<string>('ONBOARDING_OUTREACH_CHANNEL_ID') ?? null;
   }
 
+  /** Máximo de leads processados por tick (a cada 2 min). */
+  get maxSendsPerTick(): number {
+    const n = Number(this.config.get<string>('ONBOARDING_MAX_SENDS_PER_TICK'));
+    return Number.isFinite(n) && n > 0 ? n : 3;
+  }
+
   /** Até quando o 1258 está restringido: ações nele ficam pra depois disso. */
   get legacyResumeAt(): Date | null {
     const raw = this.config.get<string>('ONBOARDING_LEGACY_RESUME_AT');
