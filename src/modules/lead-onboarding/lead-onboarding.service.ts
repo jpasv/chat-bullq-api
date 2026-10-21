@@ -694,7 +694,18 @@ export class LeadOnboardingService {
     });
     // Reunião agendada: start = início da reunião, due = fim (1h).
     const start = new Date(meeting.startIso);
-    await this.syncDates(lead, start, new Date(start.getTime() + (meeting.durationMs ?? MEETING_MS)));
+    await this.syncDates(lead, start, new Date(start.getTime() + (meeting.durationMs ?? MEETING_MS)), true);
+    // O agente precisa saber que a reunião existe, mesmo quando foi marcada
+    // por fora (caso Murillo, 21/10: a IA desmentiu um agendamento real).
+    if (lead.conversationId) {
+      const quando = fmt(start);
+      await this.safe(() =>
+        this.messenger.appendPromptContext(
+          lead.conversationId!,
+          `REUNIÃO JÁ AGENDADA E CONFIRMADA: ${quando} (horário de Brasília), com ${meeting.attendees.join(', ')}. Meet: ${meeting.meetLink ?? 'link no convite'}. O convite já foi enviado. Nunca desminta, desmarque nem diga que o link não vale; se o lead perguntar, confirme.`,
+        ),
+      );
+    }
     await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.REUNIAO_AGENDADA));
     await this.safe(() =>
       this.hoppe.setAssignees(lead.hoppeTaskId, { add: [HOPPE_USER.TIAGO], rem: [HOPPE_USER.CLAUDE] }),
@@ -764,7 +775,14 @@ export class LeadOnboardingService {
    * start_date = última ação, due_date = próxima ação (null = nenhuma
    * agendada). `undefined` mantém o valor atual no Hoppe.
    */
-  private async syncDates(lead: OnboardingLead, start: Date | null | undefined, due: Date | null | undefined): Promise<void> {
+  private async syncDates(
+    lead: OnboardingLead,
+    start: Date | null | undefined,
+    due: Date | null | undefined,
+    meeting = false,
+  ): Promise<void> {
+    // Com reunião marcada, as datas da task são as da reunião: só o próprio agendamento mexe.
+    if (!meeting && (lead.meetingEventId || lead.state === 'SCHEDULED')) return;
     await this.safe(() => this.hoppe.setDates(lead.hoppeTaskId, { start, due }));
   }
 

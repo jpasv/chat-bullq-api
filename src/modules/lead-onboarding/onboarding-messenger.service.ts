@@ -167,6 +167,14 @@ export class OnboardingMessengerService {
     return !!last && Date.now() - last.createdAt.getTime() < SESSION_WINDOW_MS;
   }
 
+  /** Acrescenta um aviso ao "Contexto do lead" (sem apagar o que já tem). */
+  async appendPromptContext(conversationId: string, note: string): Promise<void> {
+    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { metadata: true } });
+    const md = (conv?.metadata as Record<string, unknown>) ?? {};
+    const base = typeof md.promptContext === 'string' ? md.promptContext : '';
+    await this.setPromptContext(conversationId, `${base}\n\n${note}`.trim());
+  }
+
   /** Grava o bloco "Contexto do lead" lido pelo prompt-builder. */
   async setPromptContext(conversationId: string, promptContext: string): Promise<void> {
     const conv = await this.prisma.conversation.findUnique({
