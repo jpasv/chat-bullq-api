@@ -75,11 +75,13 @@ const QUALIFYING_REVENUE = [
   'R$ 200.000 a R$ 1 milhão',
   'Acima de R$ 1 milhão',
 ];
-const NON_QUALIFYING_REVENUE = ['Até R$ 10.000', 'R$ 10.000 a R$ 50.000'];
+/** Corte desde 21/10: R$ 35 mil/mês. A faixa de 10 a 50 mil depende do valor. */
+const NON_QUALIFYING_REVENUE = ['Até R$ 10.000'];
 
 /**
- * Faixa do campo "Faturamento mensal" passa no corte de R$ 50 mil/mês?
- * Null = desconhecido (vazio, "Prefiro não informar" ou faixa fora da lista).
+ * Faixa do campo "Faturamento mensal" passa no corte de R$ 35 mil/mês?
+ * Null = desconhecido (vazio, "Prefiro não informar", faixa fora da lista ou
+ * "R$ 10.000 a R$ 50.000", que depende do valor).
  */
 export function revenueQualifies(faixa: string | null): boolean | null {
   const f = (faixa ?? '').trim();

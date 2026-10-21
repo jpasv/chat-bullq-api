@@ -64,7 +64,7 @@ describe('nextAttemptDelayHours', () => {
 
 describe('revenueQualifies', () => {
   it('corte em R$ 50 mil/mês', () => {
-    expect(revenueQualifies('R$ 10.000 a R$ 50.000')).toBe(false);
+    expect(revenueQualifies('R$ 10.000 a R$ 50.000')).toBeNull();
     expect(revenueQualifies('Até R$ 10.000')).toBe(false);
     expect(revenueQualifies('R$ 50.000 a R$ 200.000')).toBe(true);
     expect(revenueQualifies('R$ 200.000 a R$ 1 milhão')).toBe(true);

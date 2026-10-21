@@ -6,7 +6,9 @@ import {
 import { AiTool, ToolContext, ToolResult } from '../tool.types';
 
 const RESULTS: QualificationResult[] = ['qualificado', 'aguardando_socios', 'desqualificado'];
-const BELOW_CUT = ['Até R$ 10.000', 'R$ 10.000 a R$ 50.000'];
+const CUT = 35_000; // R$/mês (21/10)
+const BELOW_CUT = ['Até R$ 10.000'];
+const DEPENDS_ON_VALUE = 'R$ 10.000 a R$ 50.000';
 const FAIXAS = [
   'Até R$ 10.000',
   'R$ 10.000 a R$ 50.000',
@@ -20,7 +22,7 @@ const FAIXAS = [
 export class RegistrarQualificacaoTool implements AiTool {
   readonly name = 'registrarQualificacao';
   readonly description =
-    'Registra no Hoppe o resultado da qualificação. Só chame quando as respostas sustentarem o resultado. "qualificado" = faturamento a partir de R$ 50 mil/mês confirmado, é decisor e prioridade média ou alta (chame ANTES de convidar pro diagnóstico). "aguardando_socios" = qualificado mas os sócios ainda não confirmaram presença. "desqualificado" = faturamento confirmado abaixo de R$ 50 mil/mês, não decide e quem decide não participa, ou prioridade baixa. "qualificado" e "aguardando_socios" exigem faturamentoConfirmado (faixa que o cliente confirmou nesta conversa); sem ele o agendamento fica bloqueado.';
+    'Registra no Hoppe o resultado da qualificação. Só chame quando as respostas sustentarem o resultado. "qualificado" = faturamento a partir de R$ 35 mil/mês confirmado, é decisor e prioridade média ou alta (chame ANTES de convidar pro diagnóstico). "aguardando_socios" = qualificado mas os sócios ainda não confirmaram presença. "desqualificado" = faturamento confirmado abaixo de R$ 35 mil/mês, não decide e quem decide não participa, ou prioridade baixa. "qualificado" e "aguardando_socios" exigem faturamentoConfirmado (faixa que o cliente confirmou nesta conversa); sem ele o agendamento fica bloqueado.';
   readonly parameters = {
     type: 'object',
     additionalProperties: false,
@@ -28,6 +30,10 @@ export class RegistrarQualificacaoTool implements AiTool {
     properties: {
       resultado: { type: 'string', enum: RESULTS },
       motivo: { type: 'string', minLength: 3, maxLength: 400, description: 'Por que esse resultado, em uma frase.' },
+      faturamentoValor: {
+        type: 'number',
+        description: 'Valor aproximado do faturamento mensal em reais, quando ele disser (ex.: 40000). Obrigatório na faixa de R$ 10 mil a R$ 50 mil.',
+      },
       faturamentoConfirmado: {
         type: 'string',
         enum: FAIXAS,
@@ -66,8 +72,12 @@ export class RegistrarQualificacaoTool implements AiTool {
       if (!faixa) {
         return { output: { ok: false, error: 'falta_faturamento', hint: 'Confirme o faturamento mensal com o cliente antes de qualificar.' } };
       }
-      if (BELOW_CUT.includes(faixa)) {
-        return { output: { ok: false, error: 'faturamento_abaixo_do_corte', hint: 'Abaixo de R$ 50 mil/mês é desqualificado; não convide.' } };
+      const valor = Number(input.faturamentoValor);
+      if (BELOW_CUT.includes(faixa) || (faixa === DEPENDS_ON_VALUE && Number.isFinite(valor) && valor > 0 && valor < CUT)) {
+        return { output: { ok: false, error: 'faturamento_abaixo_do_corte', hint: 'Abaixo de R$ 35 mil/mês é desqualificado; não convide pro diagnóstico.' } };
+      }
+      if (faixa === DEPENDS_ON_VALUE && !(Number.isFinite(valor) && valor > 0)) {
+        return { output: { ok: false, error: 'falta_valor_faturamento', hint: 'Na faixa de R$ 10 a 50 mil, pergunte o valor aproximado (o corte é R$ 35 mil/mês) e mande em faturamentoValor.' } };
       }
     }
     await this.onboarding.recordQualification(lead, {
