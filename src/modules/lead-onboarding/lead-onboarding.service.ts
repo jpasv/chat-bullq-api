@@ -125,6 +125,7 @@ export class LeadOnboardingService {
     }
     const snapshot = snapshotFromTask(task);
     if (!snapshot.phone) return this.skip(lead, 'sem WhatsApp na task');
+    snapshot.consultoria = await this.repo.boughtConsultoria(snapshot.email, snapshot.phone);
 
     const target = await this.messenger.resolveTarget(snapshot.phone);
     if (!target) {
@@ -616,7 +617,7 @@ export class LeadOnboardingService {
 
   async recordScheduled(
     lead: OnboardingLead,
-    meeting: { eventId: string; startIso: string; attendees: string[]; meetLink: string | null },
+    meeting: { eventId: string; startIso: string; attendees: string[]; meetLink: string | null; durationMs?: number },
   ): Promise<void> {
     await this.repo.update(lead.id, {
       state: 'SCHEDULED',
@@ -626,7 +627,7 @@ export class LeadOnboardingService {
     });
     // Reunião agendada: start = início da reunião, due = fim (1h).
     const start = new Date(meeting.startIso);
-    await this.syncDates(lead, start, new Date(start.getTime() + MEETING_MS));
+    await this.syncDates(lead, start, new Date(start.getTime() + (meeting.durationMs ?? MEETING_MS)));
     await this.safe(() => this.hoppe.setStatus(lead.hoppeTaskId, HOPPE_STATUS.REUNIAO_AGENDADA));
     await this.safe(() =>
       this.hoppe.setAssignees(lead.hoppeTaskId, { add: [HOPPE_USER.TIAGO], rem: [HOPPE_USER.CLAUDE] }),
@@ -657,6 +658,8 @@ export class LeadOnboardingService {
   /** Qualificação liberada pra agendar? (registrada como qualificado/aguardando_socios com faturamento) */
   isQualified(lead: OnboardingLead): boolean {
     const q = (this.snapshotOf(lead) as LeadSnapshot & { qualificacao?: { resultado?: string } }).qualificacao;
+    // Consultoria comprada não passa por qualificação.
+    if ((this.snapshotOf(lead) as LeadSnapshot).consultoria) return true;
     return q?.resultado === 'qualificado' || q?.resultado === 'aguardando_socios';
   }
 

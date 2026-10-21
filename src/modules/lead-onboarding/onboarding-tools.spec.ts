@@ -116,6 +116,15 @@ describe('tools do onboarding', () => {
     expect(data.snapshot.qualificacao).toMatchObject({ resultado: 'qualificado', faturamento: 'R$ 50.000 a R$ 200.000', nivel: 'usa ChatGPT' });
   });
 
+  it('consultoria comprada agenda 90 min sem qualificação', async () => {
+    const { svc } = realService(lead({ consultoria: true }));
+    const calendar = { create: jest.fn().mockResolvedValue({ eventId: 'ev1', meetLink: 'https://meet' }) };
+    const tool = new AgendarDiagnosticoTool(svc, calendar as any, { closerEmail: 'tiago@asv.digital' } as any);
+    const r: any = (await tool.execute({ inicioIso: '2099-10-19T13:00:00.000Z', emails: ['m@x.com'], participantes: ['Mayara'] }, ctx)).output;
+    expect(r.ok).toBe(true);
+    expect(calendar.create.mock.calls[0][0]).toMatchObject({ durationMin: 90, title: 'Consultoria Individual de IA – Mayara Silva' });
+  });
+
   it('sem qualificação não consulta horário nem agenda', async () => {
     const { svc } = realService(lead());
     const calendar = { freeSlots: jest.fn(), create: jest.fn() };

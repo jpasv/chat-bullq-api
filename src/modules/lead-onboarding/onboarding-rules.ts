@@ -18,6 +18,8 @@ export interface LeadSnapshot {
   estado: string | null;
   gargalo: string | null;
   meta: string | null;
+  /** Comprou a Consultoria Individual de 90 min (já paga): agenda direto, sem qualificar. */
+  consultoria?: boolean;
 }
 
 const TZ_OFFSET_HOURS = -3; // America/Sao_Paulo, sem horário de verão desde 2019
@@ -137,6 +139,7 @@ function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
   const nome = lead.firstName?.trim() || '';
   const ref = productRef(lead.produto);
 
+  if (lead.consultoria) return consultoriaAttempt(attempt, nome);
   if (attempt === 1) {
     const oi = nome ? `Oi ${nome}, tudo bem? Aqui é da Bravy` : 'Oi, tudo bem? Aqui é da Bravy';
     return [oi, openerBody(lead.progresso, ref)];
@@ -148,6 +151,18 @@ function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
   // Última tentativa leva a oferta: quem não respondeu "conseguiu mexer?"
   // às vezes responde a um convite concreto (pedido de 19/10, meta de 3/dia).
   return diagnosticOffer(nome);
+}
+
+/** Quem comprou a consultoria de 90 min: o assunto é marcar a consultoria. */
+function consultoriaAttempt(attempt: 1 | 2 | 3, nome: string): string[] {
+  if (attempt === 1) {
+    return [
+      nome ? `Oi ${nome}, tudo bem? Aqui é o Tiago, da Bravy` : 'Oi, tudo bem? Aqui é o Tiago, da Bravy',
+      'vi que você comprou a consultoria individual de 90 min. vamos marcar? me conta o que você quer resolver primeiro que eu já preparo a conversa em cima disso',
+    ];
+  }
+  const corpo = 'sua consultoria de 90 min tá esperando um horário. me fala o melhor dia pra você que eu encaixo';
+  return [nome ? `${nome}, ${corpo}` : capitalize(corpo)];
 }
 
 /** Convite pro diagnóstico em 2 balões, sem horário (o agente oferece quando ele responder). */
@@ -319,6 +334,11 @@ export function buildPromptContext(lead: LeadSnapshot, extra: { attempt: number;
   if (!lead.progresso && !lead.faturamento && !lead.atuacao) {
     lines.push(
       'SEM FORMULÁRIO: este comprador não preencheu o formulário de onboarding. Descubra o nível de maturidade dele ao longo da conversa (já usa IA ou Claude Code no dia a dia? o que faz e pra quem? tamanho da equipe? faturamento), uma coisa por vez e sem virar questionário, e siga pro convite.',
+    );
+  }
+  if (lead.consultoria) {
+    lines.push(
+      'COMPROU A CONSULTORIA INDIVIDUAL de 90 min (já paga): NÃO qualifique, NÃO fale de diagnóstico gratuito nem de faturamento. Descubra em uma pergunta o que ele quer resolver primeiro e marque a consultoria com o Tiago: consultarHorariosDiagnostico e agendarDiagnostico (o sistema já reserva 90 min e chama de Consultoria Individual). Peça o e-mail do convite.',
     );
   }
   if (revenueAbove200kMonth(lead.faturamento)) {

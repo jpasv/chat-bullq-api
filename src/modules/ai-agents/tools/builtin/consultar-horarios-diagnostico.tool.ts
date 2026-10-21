@@ -44,7 +44,8 @@ export class ConsultarHorariosDiagnosticoTool implements AiTool {
         ? new Date(`${input.aPartirDe}T12:00:00-03:00`)
         : undefined;
     try {
-      const slots = await this.calendar.freeSlots(new Date(), dias, 6, aPartirDe);
+      const consultoria = !!(lead.snapshot as Record<string, unknown> | null)?.consultoria;
+      const slots = await this.calendar.freeSlots(new Date(), dias, 6, aPartirDe, consultoria ? 90 : 60);
       return { output: { ok: true, hoje: todayBrt(), slots } };
     } catch {
       return { output: { ok: false, error: 'agenda_indisponivel', hint: 'Diga que vai confirmar os horários e já volta; não invente horário.' } };
