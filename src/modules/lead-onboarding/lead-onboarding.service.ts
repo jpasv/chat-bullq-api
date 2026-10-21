@@ -52,6 +52,10 @@ export interface QualificationInput {
   decisor?: boolean | null;
   socios?: string[] | null;
   usoIA?: string | null;
+  maiorDor?: string | null;
+  chatOuCode?: string | null;
+  desenvolveSistemas?: string | null;
+  agentes?: string | null;
   equipe?: string | null;
   folhaMensal?: string | null;
   investimentoSoftware?: string | null;
@@ -564,7 +568,11 @@ export class LeadOnboardingService {
       `decisor: ${input.decisor === true ? 'sim' : input.decisor === false ? 'não' : 'não informado'}`,
       `sócios: ${input.socios?.length ? input.socios.join(', ') : 'nenhum informado'}`,
       `prioridade: ${input.prioridade ?? 'não informada'}`,
+      `o que mais quer resolver com IA: ${input.maiorDor ?? 'não informado'}`,
       `uso de IA hoje: ${input.usoIA ?? 'não informado'}`,
+      `chat ou code: ${input.chatOuCode ?? 'não informado'}`,
+      `desenvolve sistemas: ${input.desenvolveSistemas ?? 'não informado'}`,
+      `agentes: ${input.agentes ?? 'não informado'}`,
       `equipe: ${input.equipe ?? 'não informada'}`,
       `folha mensal: ${input.folhaMensal ?? 'não informada'}`,
       `investimento em softwares: ${input.investimentoSoftware ?? 'não informado'}`,
