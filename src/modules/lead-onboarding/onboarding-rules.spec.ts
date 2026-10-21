@@ -91,10 +91,10 @@ describe('renderAttempt', () => {
   });
   it('mensagens 2 e 3', () => {
     expect(renderAttempt(2, lead())).toEqual([
-      'Mayara, conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo',
+      'Mayara, conseguiu começar a usar? se travou em alguma parte, me conta que eu te ajudo',
     ]);
     expect(renderAttempt(3, lead())).toEqual([
-      'Mayara, última mensagem por aqui pra não encher: se a IA pudesse tirar uma tarefa das suas costas amanhã, qual seria? me conta que eu te ajudo a começar por ela',
+      'Mayara, o que você mais queria colocar pra funcionar no escritório quando comprou o 57 Agents Advocacia?',
     ]);
     expect(renderAttempt(3, lead()).join(' ')).not.toMatch(/diagnóstico|horário/);
   });

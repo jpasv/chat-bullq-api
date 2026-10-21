@@ -60,6 +60,9 @@ export interface QualificationInput {
   investimentoSoftware?: string | null;
   /** fazer por mim | aprender a construir | treinar alguém da equipe */
   perfil?: string | null;
+  cenario?: string | null;
+  impacto?: string | null;
+  prazo?: string | null;
 }
 
 /**
@@ -578,6 +581,9 @@ export class LeadOnboardingService {
       `folha mensal: ${input.folhaMensal ?? 'não informada'}`,
       `investimento em softwares: ${input.investimentoSoftware ?? 'não informado'}`,
       `perfil: ${input.perfil ?? 'não informado'}`,
+      `cenário atual: ${input.cenario ?? 'não informado'}`,
+      `impacto: ${input.impacto ?? 'não informado'}`,
+      `momento/prazo: ${input.prazo ?? 'não informado'}`,
     ].join('; ');
 
     if (input.resultado === 'desqualificado') {
@@ -741,7 +747,7 @@ export function suggestedOffer(
 ): string {
   const perfil = (q.perfil ?? '').toLowerCase();
   const altoFaturamento = revenueAbove200kMonth(faixa);
-  if (/aprender|construir|treinar|renda/.test(perfil)) return MAESTRIA;
+  if (/aprender|construir|treinar|renda|preparar|vender/.test(perfil)) return MAESTRIA;
   if (/fa(z|ç)a|por mim|fazer/.test(perfil)) {
     return altoFaturamento ? IMPLEMENTACAO : `${IMPLEMENTACAO} (faturamento abaixo de R$ 200 mil/mês: confirmar orçamento)`;
   }

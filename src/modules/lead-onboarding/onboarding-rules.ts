@@ -147,13 +147,12 @@ function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
     return [oi, openerBody(lead.progresso, ref)];
   }
   if (attempt === 2) {
-    const corpo = 'conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo';
+    const corpo = 'conseguiu começar a usar? se travou em alguma parte, me conta que eu te ajudo';
     return [nome ? `${nome}, ${corpo}` : capitalize(corpo)];
   }
   // Última tentativa: nada de convite (só depois de qualificar, pedido de
   // 21/10). Faz a P1 da qualificação, que é fácil de responder.
-  const ultima =
-    'última mensagem por aqui pra não encher: se a IA pudesse tirar uma tarefa das suas costas amanhã, qual seria? me conta que eu te ajudo a começar por ela';
+  const ultima = `o que você mais queria colocar pra funcionar no escritório quando comprou ${ref ?? 'o curso'}?`;
   return [nome ? `${nome}, ${ultima}` : capitalize(ultima)];
 }
 
