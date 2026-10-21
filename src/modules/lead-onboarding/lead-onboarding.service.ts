@@ -185,8 +185,11 @@ export class LeadOnboardingService {
       try {
         sent = await this.messenger.send({ target, name: snapshot.name, email: snapshot.email, text: renderAttempt(attempt, snapshot), template });
       } catch (err) {
-        if (err instanceof HumanConversationError) return this.skip(lead, 'conversa com o time no canal de abordagem, abordagem manual');
-        throw err;
+        if (!(err instanceof HumanConversationError)) throw err;
+        if (!(await this.messenger.reclaimOnboardingConversation(err.conversationId))) {
+          return this.skip(lead, 'conversa com o time no canal de abordagem, abordagem manual');
+        }
+        sent = await this.messenger.send({ target, name: snapshot.name, email: snapshot.email, text: renderAttempt(attempt, snapshot), template, conversationId: err.conversationId });
       }
       await this.safe(() => this.messenger.setPromptContext(sent.conversationId, buildPromptContext(snapshot, { attempt, state: 'CONTACTED' })));
       await this.safe(() => this.messenger.pauseConversation(lead.conversationId!));
@@ -228,11 +231,15 @@ export class LeadOnboardingService {
     try {
       sent = await this.messenger.send({ target, name: snapshot.name, email: snapshot.email, text: continuacao, template });
     } catch (err) {
-      if (err instanceof HumanConversationError) {
-        this.logger.warn(`Migração do lead ${lead.id}: conversa com o time no canal oficial, pulado`);
+      // Lead voltando pra uma conversa que já foi nossa nesse canal: reaproveita.
+      if (err instanceof HumanConversationError && (await this.messenger.reclaimOnboardingConversation(err.conversationId))) {
+        sent = await this.messenger.send({ target, name: snapshot.name, email: snapshot.email, text: continuacao, template, conversationId: err.conversationId });
+      } else if (err instanceof HumanConversationError) {
+        this.logger.warn(`Migração do lead ${lead.id}: conversa com o time no canal de abordagem, pulado`);
         return null;
+      } else {
+        throw err;
       }
-      throw err;
     }
     await this.safe(() =>
       this.messenger.setPromptContext(
