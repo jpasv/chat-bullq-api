@@ -320,7 +320,7 @@ export function buildPromptContext(lead: LeadSnapshot, extra: { attempt: number;
   const lines = [
     `Lead do Hoppe (list Leads onboarding). Comprou: ${lead.produto ?? 'não informado'}.`,
     `Nome: ${lead.name ?? 'não informado'}`,
-    `WhatsApp: ${lead.phone ?? 'não informado'}${isRio(lead.phone) ? ' (DDD 21, Rio)' : ''}`,
+    `WhatsApp: ${lead.phone ?? 'não informado'}`,
     `E-mail do formulário: ${lead.email ?? 'não informado'}`,
     `Progresso com o produto (formulário): ${lead.progresso ?? 'não informado'}`,
     `Atuação: ${lead.atuacao ?? 'não informado'}`,
