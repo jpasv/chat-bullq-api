@@ -77,7 +77,11 @@ export class LeadOnboardingService {
     if (!this.config.enabled) return { processed: 0 };
     const due = await this.repo.findDue(['PENDING', 'CONTACTED', 'REPLIED'], now);
     let processed = 0;
+    // Teto de envios por tick (a cada 2 min): rajada no WhatsApp do Tiago
+    // foi o que causou a restrição de 20/10. O resto fica pro próximo tick.
+    const maxPerTick = this.config.maxSendsPerTick ?? Number.POSITIVE_INFINITY;
     for (const lead of due) {
+      if (processed >= maxPerTick) break;
       // Claim atômico: outro tick/réplica já pegou, ou o estado mudou desde a leitura.
       if (!(await this.repo.claim(lead))) continue;
       try {
@@ -170,9 +174,25 @@ export class LeadOnboardingService {
     if (await this.blockedByConversation(lead, now)) return;
     const template = this.template(attempt === 2 ? 'lembrete' : 'ultima', snapshot);
 
-    // Lead começado pelo 1258 continua por lá (pedido de 20/10); enquanto o
-    // número estiver restringido, só reagenda.
     if (await this.waitLegacyChannel(lead, now)) return;
+
+    // Conversa aberta em outro canal (ex.: oficial, de 20/10): a próxima
+    // tentativa sai pelo canal de abordagem atual, numa conversa nova.
+    if ((await this.messenger.channelOf(lead.conversationId)) !== this.messenger.outreachChannelId()) {
+      const target = await this.messenger.resolveTarget(snapshot.phone ?? lead.phone);
+      if (!target) return this.skip(lead, 'número sem WhatsApp no canal de abordagem');
+      let sent: { conversationId: string; contactId: string };
+      try {
+        sent = await this.messenger.send({ target, name: snapshot.name, email: snapshot.email, text: renderAttempt(attempt, snapshot), template });
+      } catch (err) {
+        if (err instanceof HumanConversationError) return this.skip(lead, 'conversa com o time no canal de abordagem, abordagem manual');
+        throw err;
+      }
+      await this.safe(() => this.messenger.setPromptContext(sent.conversationId, buildPromptContext(snapshot, { attempt, state: 'CONTACTED' })));
+      await this.safe(() => this.messenger.pauseConversation(lead.conversationId!));
+      await this.afterAttempt(lead, attempt, now, { conversationId: sent.conversationId, contactId: sent.contactId });
+      return;
+    }
 
     await this.messenger.send({
       target: { digits: lead.phone, jid: lead.phone },
@@ -199,9 +219,13 @@ export class LeadOnboardingService {
     if (!target) return null;
     const template = this.template('continuacao', snapshot);
     const history = await this.messenger.transcript(oldConversationId);
+    const toOfficial = await this.messenger.isOfficial(this.messenger.outreachChannelId());
+    // Pro oficial vai o template aprovado; pro WhatsApp do Tiago, texto dele.
+    const continuacao = toOfficial
+      ? `oi ${template.vars[0]}, aqui é da Bravy. mudamos o nosso atendimento pra este número oficial e vou seguir daqui a nossa conversa sobre o ${template.vars[1]}`
+      : `oi ${template.vars[0]}, aqui é o Tiago, da Bravy. vou seguir por aqui a nossa conversa sobre o ${template.vars[1]}, tudo certo por aí?`;
     let sent: { conversationId: string; contactId: string };
     try {
-      const continuacao = `oi ${template.vars[0]}, aqui é da Bravy. mudamos o nosso atendimento pra este número oficial e vou seguir daqui a nossa conversa sobre o ${template.vars[1]}`;
       sent = await this.messenger.send({ target, name: snapshot.name, email: snapshot.email, text: continuacao, template });
     } catch (err) {
       if (err instanceof HumanConversationError) {
@@ -215,8 +239,8 @@ export class LeadOnboardingService {
         sent.conversationId,
         [
           buildPromptContext(snapshot, { attempt: lead.attempt, state: lead.state }),
-          OFFICIAL_OUTREACH_NOTE,
-          `\nEsta conversa continua uma anterior pelo WhatsApp do Tiago, que foi desativado. A 1ª mensagem aqui foi o template: "Oi ${template.vars[0]}, aqui é da Bravy. Mudamos o nosso atendimento para este número oficial e vou seguir daqui a nossa conversa sobre o ${template.vars[1]}. Pode me responder por aqui?". Quando o lead responder, retome de onde parou, sem repetir perguntas já respondidas. Histórico anterior:\n${history}`,
+          toOfficial ? OFFICIAL_OUTREACH_NOTE : '',
+          `\nEsta conversa continua uma anterior em outro número da Bravy. A 1ª mensagem aqui foi: "${continuacao}". Quando o lead responder, retome de onde parou, sem repetir perguntas já respondidas. Histórico anterior:\n${history}`,
         ].join(''),
       ),
     );
@@ -227,7 +251,7 @@ export class LeadOnboardingService {
       nextActionAt: this.followupAt(now),
     });
     await this.safe(() =>
-      this.hoppe.addComment(lead.hoppeTaskId, `Conversa movida do WhatsApp do Tiago (restringido) pro número oficial da Bravy em ${fmt(now)}.`),
+      this.hoppe.addComment(lead.hoppeTaskId, `Conversa movida pro canal de abordagem atual (${toOfficial ? 'número oficial da Bravy' : 'WhatsApp do Tiago'}) em ${fmt(now)}.`),
     );
     return sent.conversationId;
   }
@@ -335,6 +359,12 @@ export class LeadOnboardingService {
     const n = (done + 1) as 1 | 2;
     const snapshot = this.snapshotOf(lead);
     if (await this.waitLegacyChannel(lead, now)) return;
+    // Conversa em outro canal: a retomada leva a conversa pro canal de abordagem atual.
+    if ((await this.messenger.channelOf(lead.conversationId)) !== this.messenger.outreachChannelId()) {
+      await this.migrateConversation(lead, now);
+      await this.repo.update(lead.id, { silentFollowups: n });
+      return;
+    }
     // Parou com o suporte (Lívia): volta pro onboarding, que segue pro convite quando ele responder.
     const fromSupport = await this.messenger.returnFromSupport(lead.conversationId);
     const specific =
