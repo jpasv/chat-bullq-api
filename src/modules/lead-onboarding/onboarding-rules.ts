@@ -160,7 +160,7 @@ function renderAttemptRaw(attempt: 1 | 2 | 3, lead: LeadSnapshot): string[] {
 function consultoriaAttempt(attempt: 1 | 2 | 3, nome: string): string[] {
   if (attempt === 1) {
     return [
-      nome ? `Oi ${nome}, tudo bem? Aqui é o Tiago, da Bravy` : 'Oi, tudo bem? Aqui é o Tiago, da Bravy',
+      nome ? `Oi ${nome}, tudo bem? Aqui é da Bravy` : 'Oi, tudo bem? Aqui é da Bravy',
       'vi que você comprou a consultoria individual de 90 min. vamos marcar? me conta o que você quer resolver primeiro que eu já preparo a conversa em cima disso',
     ];
   }
@@ -217,10 +217,24 @@ export function isLikelyAutoReply(text: string | null, lastAttemptAt: Date | nul
  * Retomada de quem parou de responder no meio da qualificação (1ª e 2ª).
  * Curta e sem repetir a pergunta: o agente retoma o ponto quando o lead voltar.
  */
-export function renderSilentFollowup(n: 1 | 2, lead: LeadSnapshot): string | string[] {
+export function renderSilentFollowup(n: 1 | 2 | 3, lead: LeadSnapshot, objetivo?: string | null): string | string[] {
   const nome = lead.firstName?.trim() ?? '';
-  if (n === 2) return capitalize(`${nome ? `${nome}, ` : ''}vou deixar quieto por aqui por enquanto, tá? quando quiser continuar é só me responder`);
-  return capitalize(`${nome ? `${nome}, ` : ''}conseguiu ver minha última mensagem?`);
+  const pre = nome ? `${nome}, ` : '';
+  const obj = (objetivo ?? '').trim();
+  if (n === 1) return capitalize(`${pre}conseguiu ver minha última mensagem?`);
+  if (n === 2) {
+    return obj
+      ? capitalize(`${pre}você comentou que queria ${obj}. pra seguir por esse caminho só falta aquela resposta, consegue me contar?`)
+      : capitalize(`${pre}ainda faz sentido a gente seguir com isso? me conta que eu continuo daqui`);
+  }
+  return capitalize(`${pre}quer continuar essa conversa${obj ? ` sobre ${obj}` : ''}? se agora não for um bom momento, me chama quando quiser retomar`);
+}
+
+/** Retomada na data que o próprio lead pediu ("me chama semana que vem"). */
+export function renderReturnOnDate(lead: LeadSnapshot, assunto?: string | null): string {
+  const nome = lead.firstName?.trim();
+  const sobre = (assunto ?? '').trim();
+  return capitalize(`${nome ? `${nome}, ` : ''}como combinamos, tô passando pra gente retomar${sobre ? ` ${sobre}` : ''}. faz sentido seguir agora?`);
 }
 
 /** Retomada de quem ficou parado com o suporte: checa se resolveu, o agente segue pro convite. */

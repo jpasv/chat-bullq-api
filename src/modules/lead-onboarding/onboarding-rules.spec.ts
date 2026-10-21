@@ -1,5 +1,7 @@
 import {
   buildPromptContext,
+  renderSilentFollowup,
+  renderReturnOnDate,
   isAcknowledgement,
   adjustToSendWindow,
   onboardingReplyDelayMs,
@@ -110,11 +112,22 @@ describe('renderAttempt', () => {
 describe('consultoria comprada', () => {
   it('1ª mensagem fala da consultoria, não do diagnóstico', () => {
     const msgs = renderAttempt(1, lead({ consultoria: true }));
-    expect(msgs[0]).toBe('Oi Mayara, tudo bem? Aqui é o Tiago, da Bravy');
+    expect(msgs[0]).toBe('Oi Mayara, tudo bem? Aqui é da Bravy');
     expect(msgs[1]).toContain('consultoria individual de 90 min');
   });
   it('contexto manda agendar sem qualificar', () => {
     expect(buildPromptContext(lead({ consultoria: true }), { attempt: 1, state: 'CONTACTED' })).toContain('NÃO qualifique');
+  });
+});
+
+describe('retomadas', () => {
+  it('3 etapas: ponto pendente, objetivo, saída', () => {
+    expect(renderSilentFollowup(1, lead())).toBe('Mayara, conseguiu ver minha última mensagem?');
+    expect(renderSilentFollowup(2, lead(), 'automatizar o fechamento')).toContain('você comentou que queria automatizar o fechamento');
+    expect(renderSilentFollowup(3, lead(), 'automatizar o fechamento')).toContain('quer continuar essa conversa sobre automatizar o fechamento?');
+  });
+  it('data pedida', () => {
+    expect(renderReturnOnDate(lead(), 'o horário do diagnóstico')).toBe('Mayara, como combinamos, tô passando pra gente retomar o horário do diagnóstico. faz sentido seguir agora?');
   });
 });
 

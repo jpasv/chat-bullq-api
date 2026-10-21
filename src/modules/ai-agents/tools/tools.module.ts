@@ -36,6 +36,7 @@ import { AgendarDiagnosticoTool } from './builtin/agendar-diagnostico.tool';
 import { RegistrarQualificacaoTool } from './builtin/registrar-qualificacao.tool';
 import { RegistrarOptOutTool } from './builtin/registrar-opt-out.tool';
 import { EncaminharSuporteTool } from './builtin/encaminhar-suporte.tool';
+import { AgendarRetomadaTool } from './builtin/agendar-retomada.tool';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { EncaminharSuporteTool } from './builtin/encaminhar-suporte.tool';
     RegistrarQualificacaoTool,
     RegistrarOptOutTool,
     EncaminharSuporteTool,
+    AgendarRetomadaTool,
     ToolRegistry,
     HttpToolExecutorService,
     SqlToolExecutorService,

@@ -262,17 +262,26 @@ describe('LeadOnboardingService.tick', () => {
     expect(data.nextActionAt).toBeInstanceOf(Date);
   });
 
-  it('retomada de silêncio: 2ª mensagem genérica; depois da 2ª vira Inativo', async () => {
-    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', silentFollowups: 1, snapshot: { firstName: 'Mayara' } });
+  it('retomadas: 3ª se despede; depois da 3ª vira Inativo', async () => {
+    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', silentFollowups: 2, snapshot: { firstName: 'Mayara' } });
     const { service, messenger } = build({ lead });
     (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await service.tick(brt('2026-10-18T14:00:00'));
-    expect(messenger.send.mock.calls[0][0].text).toContain('Mayara, vou deixar quieto por aqui');
-    const done = build({ lead: { ...lead, silentFollowups: 2 } });
+    expect(messenger.send.mock.calls[0][0].text).toContain('Mayara, quer continuar essa conversa');
+    const done = build({ lead: { ...lead, silentFollowups: 3 } });
     (done.messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await done.service.tick(brt('2026-10-18T14:00:00'));
     expect(done.messenger.send).not.toHaveBeenCalled();
     expect(done.hoppe.setField).toHaveBeenCalledWith(TASK, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.INATIVO);
+  });
+
+  it('data pedida pelo lead: retoma nela e zera o ciclo', async () => {
+    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', silentFollowups: 2, pendingReason: 'data_pedida', pendingDetail: 'o horário', snapshot: { firstName: 'Mayara' } });
+    const { service, messenger, repo } = build({ lead });
+    (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send.mock.calls[0][0].text).toContain('como combinamos');
+    expect(repo.update.mock.calls.at(-1)![1]).toMatchObject({ pendingReason: null, silentFollowups: 0 });
   });
 
   it('retomada de quem parou com o suporte devolve pro onboarding e pergunta se deu certo', async () => {

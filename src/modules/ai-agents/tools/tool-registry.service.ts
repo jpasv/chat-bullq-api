@@ -23,6 +23,7 @@ import { AgendarDiagnosticoTool } from './builtin/agendar-diagnostico.tool';
 import { RegistrarQualificacaoTool } from './builtin/registrar-qualificacao.tool';
 import { RegistrarOptOutTool } from './builtin/registrar-opt-out.tool';
 import { EncaminharSuporteTool } from './builtin/encaminhar-suporte.tool';
+import { AgendarRetomadaTool } from './builtin/agendar-retomada.tool';
 
 /**
  * Registry of BUILT-IN skills (named "tools" in the code for legacy reasons).
@@ -65,6 +66,7 @@ export class ToolRegistry {
     registrarQualificacao: RegistrarQualificacaoTool,
     registrarOptOut: RegistrarOptOutTool,
     encaminharSuporte: EncaminharSuporteTool,
+    agendarRetomada: AgendarRetomadaTool,
   ) {
     this.register(reply, ['ORCHESTRATOR', 'WORKER']);
     this.register(transfer, ['ORCHESTRATOR', 'WORKER']);
@@ -117,6 +119,7 @@ export class ToolRegistry {
       this.register(registrarQualificacao, ['WORKER'], [onboardingAgent]);
       this.register(registrarOptOut, ['WORKER'], [onboardingAgent]);
       this.register(encaminharSuporte, ['WORKER'], [onboardingAgent]);
+      this.register(agendarRetomada, ['WORKER'], [onboardingAgent]);
     }
 
     this.logger.log(
