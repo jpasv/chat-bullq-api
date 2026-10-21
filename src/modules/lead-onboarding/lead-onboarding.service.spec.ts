@@ -46,6 +46,7 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     update: jest.fn(async (_id, data) => ({ ...lead, ...data })),
     findByConversation: jest.fn(),
     claim: jest.fn().mockResolvedValue(true),
+    boughtConsultoria: jest.fn().mockResolvedValue(false),
     updateIfState: jest.fn(async (id: string, _states: string[], data: any) => {
       await repo.update(id, data);
       return true;

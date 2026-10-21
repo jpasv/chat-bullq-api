@@ -83,13 +83,20 @@ export class AgendarDiagnosticoTool implements AiTool {
     const attendees = [...new Set([...emails, this.config.closerEmail, ...(this.config.extraAttendees ?? [])])];
 
     try {
+      // Consultoria Individual comprada: 90 min e convite com o nome do produto.
+      const consultoria = !!snapshot.consultoria;
       const ev = await this.calendar.create({
         startIso: start.toISOString(),
         attendees,
-        title: `Diagnóstico de IA – ${nome}`,
+        durationMin: consultoria ? 90 : 60,
+        title: consultoria ? `Consultoria Individual de IA – ${nome}` : `Diagnóstico de IA – ${nome}`,
         description: [
-          'Diagnóstico de IA para sua Operação, gratuito, com o Tiago (Bravy).',
-          'Objetivo: entender a rotina da empresa, identificar onde a IA pode ajudar e o que priorizar. A implementação não está incluída.',
+          consultoria
+            ? 'Consultoria Individual de IA, 90 minutos, com o Tiago (Bravy).'
+            : 'Diagnóstico de IA para sua Operação, gratuito, com o Tiago (Bravy).',
+          consultoria
+            ? 'Objetivo: aprofundar no projeto que você escolheu e sair com o caminho de implementação.'
+            : 'Objetivo: entender a rotina da empresa, identificar onde a IA pode ajudar e o que priorizar. A implementação não está incluída.',
           `Participantes: ${participantes.join(', ') || nome}.`,
         ].join('\n\n'),
       });
@@ -98,6 +105,7 @@ export class AgendarDiagnosticoTool implements AiTool {
         startIso: start.toISOString(),
         attendees: participantes.length ? participantes : emails,
         meetLink: ev.meetLink,
+        durationMs: (consultoria ? 90 : 60) * 60_000,
       });
       return { output: { ok: true, meetLink: ev.meetLink, inicioIso: start.toISOString() } };
     } catch (err) {

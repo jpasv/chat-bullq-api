@@ -1,4 +1,5 @@
 import {
+  buildPromptContext,
   isAcknowledgement,
   adjustToSendWindow,
   onboardingReplyDelayMs,
@@ -113,6 +114,17 @@ describe('renderAttempt', () => {
     for (const m of [...msgs, ...renderAttempt(2, lead()), ...renderAttempt(3, lead())]) {
       expect(m).not.toMatch(/[{}]|\.$/);
     }
+  });
+});
+
+describe('consultoria comprada', () => {
+  it('1ª mensagem fala da consultoria, não do diagnóstico', () => {
+    const msgs = renderAttempt(1, lead({ consultoria: true }));
+    expect(msgs[0]).toBe('Oi Mayara, tudo bem? Aqui é o Tiago, da Bravy');
+    expect(msgs[1]).toContain('consultoria individual de 90 min');
+  });
+  it('contexto manda agendar sem qualificar', () => {
+    expect(buildPromptContext(lead({ consultoria: true }), { attempt: 1, state: 'CONTACTED' })).toContain('NÃO qualifique');
   });
 });
 

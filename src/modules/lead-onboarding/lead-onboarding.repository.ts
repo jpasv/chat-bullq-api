@@ -84,6 +84,18 @@ export class LeadOnboardingRepository {
    * mesmo lead. Compara com o retrato lido — se o estado mudou no meio do
    * lote (respondeu, opt-out, pausa), não processa.
    */
+  /** Comprou a Consultoria Individual (Kirvano, venda aprovada) pelo e-mail ou telefone? */
+  async boughtConsultoria(email: string | null, phone: string | null): Promise<boolean> {
+    const tail = (phone ?? '').replace(/\D/g, '').slice(-8) || '---';
+    const rows = await this.prisma.$queryRaw<Array<{ ok: number }>>`
+      SELECT 1 AS ok FROM kirvano_events k
+      WHERE k.event = 'SALE_APPROVED'
+        AND EXISTS (SELECT 1 FROM jsonb_array_elements(k.payload->'products') p WHERE p->>'name' ILIKE '%consultoria individual%')
+        AND (lower(k.payload->'customer'->>'email') = lower(${email ?? '---'}) OR right(k.payload->'customer'->>'phone_number', 8) = ${tail})
+      LIMIT 1`;
+    return rows.length > 0;
+  }
+
   async claim(lead: OnboardingLead): Promise<boolean> {
     const r = await this.prisma.onboardingLead.updateMany({
       where: {

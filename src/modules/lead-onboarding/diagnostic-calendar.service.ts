@@ -51,6 +51,7 @@ export class DiagnosticCalendarService {
     days = 4,
     max = 6,
     startDay?: Date,
+    durationMin = 60,
   ): Promise<Array<{ startIso: string; label: string }>> {
     // Hoje também vale, com 2h de antecedência (lead que pede "hoje às 14h").
     const today = brtMidnight(from, 0);
@@ -59,7 +60,7 @@ export class DiagnosticCalendarService {
     const end = new Date(firstDay.getTime() + days * 24 * HOUR);
     const busy = await this.busy(firstDay, end);
     const isFree = (start: Date) => {
-      const stop = new Date(start.getTime() + HOUR);
+      const stop = new Date(start.getTime() + durationMin * 60_000);
       return !busy.some((b) => b.start < stop && b.end > start);
     };
 
@@ -85,9 +86,10 @@ export class DiagnosticCalendarService {
     attendees: string[];
     title: string;
     description: string;
+    durationMin?: number;
   }): Promise<{ eventId: string; meetLink: string | null }> {
     const start = new Date(input.startIso);
-    const end = new Date(start.getTime() + HOUR);
+    const end = new Date(start.getTime() + (input.durationMin ?? 60) * 60_000);
     const busy = await this.busy(start, end);
     if (busy.some((b) => b.start < end && b.end > start)) {
       throw new SlotTakenError(input.startIso);
