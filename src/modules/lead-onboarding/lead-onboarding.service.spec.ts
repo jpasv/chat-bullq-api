@@ -72,6 +72,7 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     conversationGuard: jest.fn().mockResolvedValue(null),
     outreachChannelId: jest.fn().mockReturnValue('oficial'),
     isOfficial: jest.fn().mockResolvedValue(true),
+    reclaimOnboardingConversation: jest.fn().mockResolvedValue(false),
     transcript: jest.fn().mockResolvedValue('Lead: oi'),
     channelOf: jest.fn().mockResolvedValue('oficial'),
   };
@@ -167,6 +168,20 @@ describe('LeadOnboardingService.tick', () => {
     expect(messenger.send.mock.calls[0][0].conversationId).toBeUndefined();
     expect(messenger.pauseConversation).toHaveBeenCalledWith('convOutro');
     expect(repo.update.mock.calls.at(-1)![1].conversationId).toBe('convNova');
+  });
+
+  it('volta pra conversa antiga do onboarding no canal de abordagem em vez de pular', async () => {
+    const { HumanConversationError } = jest.requireActual('./onboarding-messenger.service');
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'convOficial', phone: '5511975286081', snapshot: { firstName: 'Mayara', phone: '5511975286081' } });
+    const { service, messenger, repo } = build({ lead });
+    messenger.channelOf.mockResolvedValue('outroCanal');
+    messenger.send
+      .mockRejectedValueOnce(new HumanConversationError('conv1258Antiga'))
+      .mockResolvedValueOnce({ conversationId: 'conv1258Antiga', contactId: 'ct1' });
+    messenger.reclaimOnboardingConversation.mockResolvedValue(true);
+    await service.tick(brt('2026-10-20T10:00:00'));
+    expect(messenger.send.mock.calls[1][0].conversationId).toBe('conv1258Antiga');
+    expect(repo.update.mock.calls.at(-1)![1].conversationId).toBe('conv1258Antiga');
   });
 
   it('respeita o teto de leads por tick', async () => {

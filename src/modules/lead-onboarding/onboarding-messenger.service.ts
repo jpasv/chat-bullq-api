@@ -308,6 +308,28 @@ export class OnboardingMessengerService {
     await this.prisma.message.update({ where: { id: messageId }, data: { metadata: metadata as Prisma.InputJsonValue } });
   }
 
+  /**
+   * A conversa já foi do onboarding (tentativa ou agente nosso)? Aí a guarda
+   * de "conversa humana" não vale: é o próprio lead voltando pro número.
+   * Se for, religa a IA do onboarding nela.
+   */
+  async reclaimOnboardingConversation(conversationId: string): Promise<boolean> {
+    const ours = await this.prisma.message.findFirst({
+      where: {
+        conversationId,
+        direction: MessageDirection.OUTBOUND,
+        OR: [{ senderName: 'Assistente do Tiago' }, { senderName: 'Lívia Andrade' }],
+      },
+      select: { id: true },
+    });
+    if (!ours) return false;
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { aiEnabled: true, activeAgentId: this.requireConfig('agentId'), assignedToId: null },
+    });
+    return true;
+  }
+
   /** Últimas mensagens da conversa em texto corrido (pra levar o contexto pra outro canal). */
   async transcript(conversationId: string, limit = 24): Promise<string> {
     const msgs = await this.prisma.message.findMany({
