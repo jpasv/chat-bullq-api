@@ -94,9 +94,9 @@ describe('renderAttempt', () => {
       'Mayara, conseguiu dar uma olhada? se travou em alguma coisa me fala que eu te ajudo',
     ]);
     expect(renderAttempt(3, lead())).toEqual([
-      'Mayara, como você é cliente, tem um diagnóstico de IA de 1h com o Tiago, sem custo, pra olhar o seu dia a dia e sair sabendo o que automatizar primeiro',
-      'essa semana ainda tem horário, quer que eu separe um pra você?',
+      'Mayara, última mensagem por aqui pra não encher: se a IA pudesse tirar uma tarefa das suas costas amanhã, qual seria? me conta que eu te ajudo a começar por ela',
     ]);
+    expect(renderAttempt(3, lead()).join(' ')).not.toMatch(/diagnóstico|horário/);
   });
   it('nunca envia placeholder vazio nem ponto final', () => {
     const msgs = renderAttempt(1, lead({ firstName: '', name: null, produto: null }));

@@ -267,7 +267,7 @@ describe('LeadOnboardingService.tick', () => {
     const { service, messenger } = build({ lead });
     (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await service.tick(brt('2026-10-18T14:00:00'));
-    expect(messenger.send.mock.calls[0][0].text[0]).toContain('Mayara, como você é cliente, tem um diagnóstico de IA');
+    expect(messenger.send.mock.calls[0][0].text).toContain('Mayara, vou deixar quieto por aqui');
     const done = build({ lead: { ...lead, silentFollowups: 2 } });
     (done.messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
     await done.service.tick(brt('2026-10-18T14:00:00'));
