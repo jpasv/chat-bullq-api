@@ -29,6 +29,7 @@ import {
   renderResume,
   renderSilentFollowup,
   renderAfterSupport,
+  renderReturnOnDate,
   revenueAbove200kMonth,
   snapshotFromTask,
   OFFICIAL_OUTREACH_NOTE,
@@ -376,9 +377,11 @@ export class LeadOnboardingService {
       );
       return;
     }
-    const n = (done + 1) as 1 | 2;
     const snapshot = this.snapshotOf(lead);
     if (await this.waitLegacyChannel(lead, now)) return;
+    // Data que o próprio lead pediu: retoma nela e começa um ciclo novo de retomadas.
+    if (lead.pendingReason === 'data_pedida') return this.returnOnRequestedDate(lead, snapshot, now);
+    const n = (done + 1) as 1 | 2 | 3;
     // Conversa em outro canal: a retomada leva a conversa pro canal de abordagem atual.
     if ((await this.messenger.channelOf(lead.conversationId)) !== this.messenger.outreachChannelId()) {
       await this.migrateConversation(lead, now);
@@ -396,7 +399,7 @@ export class LeadOnboardingService {
       name: null,
       email: null,
       template: this.template('retomada', snapshot),
-      text: fromSupport ? renderAfterSupport(snapshot) : specific ?? renderSilentFollowup(n, snapshot),
+      text: fromSupport ? renderAfterSupport(snapshot) : specific ?? renderSilentFollowup(n, snapshot, this.objectiveOf(lead)),
       conversationId: lead.conversationId,
     });
     const { start, end } = this.config.sendWindow;
@@ -413,6 +416,46 @@ export class LeadOnboardingService {
         `${n}ª retomada enviada em ${fmt(now)}${specific ? ` (pendência: ${lead.pendingReason})` : ''}: lead sem resposta na qualificação.`,
       ),
     );
+  }
+
+  /** Lead pediu pra ser chamado numa data ("me chama semana que vem"): o agente grava aqui. */
+  async scheduleReturn(lead: OnboardingLead, at: Date, assunto: string | null): Promise<Date> {
+    const { start, end } = this.config.sendWindow;
+    const when = adjustToSendWindow(at, start, end);
+    await this.repo.update(lead.id, {
+      nextActionAt: when,
+      pendingReason: 'data_pedida',
+      pendingDetail: assunto,
+      resumeSentAt: null,
+      silentFollowups: 0,
+    });
+    await this.syncDates(lead, new Date(), when);
+    await this.safe(() =>
+      this.hoppe.addComment(lead.hoppeTaskId, `Lead pediu pra ser chamado em ${fmt(when)}${assunto ? ` (${assunto})` : ''}. Retomada agendada.`),
+    );
+    return when;
+  }
+
+  private async returnOnRequestedDate(lead: OnboardingLead, snapshot: LeadSnapshot, now: Date): Promise<void> {
+    await this.messenger.send({
+      target: { digits: lead.phone!, jid: `${lead.phone}@s.whatsapp.net` },
+      name: null,
+      email: null,
+      template: this.template('retomada', snapshot),
+      text: renderReturnOnDate(snapshot, lead.pendingDetail),
+      conversationId: lead.conversationId,
+    });
+    const { start, end } = this.config.sendWindow;
+    const nextActionAt = adjustToSendWindow(new Date(now.getTime() + 24 * HOUR), start, end);
+    // Ciclo novo: as 3 retomadas contam a partir daqui.
+    await this.repo.update(lead.id, { pendingReason: null, pendingDetail: null, resumeSentAt: now, silentFollowups: 0, nextActionAt });
+    await this.syncDates(lead, now, nextActionAt);
+    await this.safe(() => this.hoppe.addComment(lead.hoppeTaskId, `Retomada na data pedida pelo lead enviada em ${fmt(now)}.`));
+  }
+
+  private objectiveOf(lead: OnboardingLead): string | null {
+    const q = ((lead.snapshot ?? {}) as Record<string, any>).qualificacao;
+    return (q?.objetivo as string) || null;
   }
 
   /**
@@ -697,6 +740,7 @@ export class LeadOnboardingService {
         resultado: input.resultado,
         faturamento: input.faturamentoConfirmado ?? null,
         nivel: input.nivel ?? null,
+        objetivo: input.maiorDor ?? input.objetivo ?? null,
         em: now.toISOString(),
       },
     } as Prisma.InputJsonValue;
