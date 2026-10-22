@@ -662,10 +662,12 @@ export class LeadOnboardingService {
       snapshot: this.withQualification(lead, input, now),
     });
     await this.syncDates(lead, now, followupAt);
+    const offer = suggestedOffer(input, faixa);
+    await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.OPORTUNIDADE, offerValue(offer)));
     await this.safe(() =>
       this.hoppe.addComment(
         lead.hoppeTaskId,
-        `Qualificado para o Diagnóstico de IA em ${fmt(now)}. ${input.motivo}. Dados: ${dados}. Oferta sugerida pro Tiago: ${suggestedOffer(input, faixa)}.`,
+        `Qualificado para o Diagnóstico de IA em ${fmt(now)}. ${input.motivo}. Dados: ${dados}. Oferta sugerida pro Tiago: ${offer}.`,
       ),
     );
   }
@@ -817,6 +819,11 @@ export function suggestedOffer(
   if (constroi) return `${MAESTRIA} (já constrói; perfil não confirmado)`;
   if (altoFaturamento) return `${IMPLEMENTACAO} (faturamento alto; perfil não confirmado)`;
   return 'Tiago decide na reunião: perguntar se quer que façam (Implementação) ou aprender a construir (Maestr.IA)';
+}
+
+/** Valor do campo Oportunidade: Implementação R$ 35 mil; Maestr.IA ou sem perfil, R$ 17 mil (conservador). */
+export function offerValue(offer: string): number {
+  return offer.startsWith(IMPLEMENTACAO) ? 35_000 : 17_000;
 }
 
 function startOfBrtDay(at: Date): Date {

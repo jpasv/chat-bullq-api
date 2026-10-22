@@ -23,6 +23,8 @@ export const HOPPE_STATUS_NAME_NOVA = 'nova oportunidade';
 export const HOPPE_FIELD = {
   ATIVIDADE: '4227b019-f6e9-4737-b6d7-3a85d2b6fbd5',
   FATURAMENTO_MENSAL: '926f2dff-a7f5-4dc4-b4c5-1ea522b16cb5',
+  /** Moeda do tipo de task Lead: valor da oferta sugerida (pedido de 22/10). */
+  OPORTUNIDADE: '1e77b98a-c352-4d2b-91c8-29ac32a7ba26',
 } as const;
 
 /** Nome dos campos como vêm na task (o client indexa por nome). */
