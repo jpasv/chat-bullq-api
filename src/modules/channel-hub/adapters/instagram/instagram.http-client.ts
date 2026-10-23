@@ -293,6 +293,25 @@ export class InstagramHttpClient {
     });
   }
 
+  /**
+   * Se a pessoa segue a conta. A Meta só responde pra quem já interagiu
+   * (mensagem ou clique); sem consentimento devolve erro → null.
+   */
+  async getFollowsBusiness(channel: Channel, igUserId: string): Promise<boolean | null> {
+    const client = this.createClient(channel);
+    try {
+      const { data } = await client.get(`/${igUserId}`, {
+        params: { fields: 'is_user_follow_business' },
+      });
+      return typeof data?.is_user_follow_business === 'boolean' ? data.is_user_follow_business : null;
+    } catch (err: any) {
+      this.logger.warn(
+        `Instagram getFollowsBusiness(${igUserId}) failed: ${err?.response?.data?.error?.message ?? err.message}`,
+      );
+      return null;
+    }
+  }
+
   private wrapGraphError(err: any, context: string): Error {
     const metaError = err?.response?.data?.error;
     if (metaError) {

@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { IG_FLOWS_QUEUE, IgFlowStartCommentJob } from '../ig-flows/ig-flows.types';
 import { PrismaService } from '../../database/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { InstagramHttpClient } from '../channel-hub/adapters/instagram/instagram.http-client';
@@ -21,6 +24,7 @@ export class SocialCommentsIngestService {
     private readonly repo: SocialCommentsRepository,
     private readonly instagram: InstagramHttpClient,
     private readonly realtime: RealtimeGateway,
+    @InjectQueue(IG_FLOWS_QUEUE) private readonly igFlowsQueue: Queue,
   ) {}
 
   async ingest(data: CommentJobData): Promise<{ created: boolean }> {
@@ -66,6 +70,29 @@ export class SocialCommentsIngestService {
       this.realtime.emitToChannel(channelId, event, thread);
     }
     this.logger.log(`Comment ${saved.externalId} ingested (channel ${channelId}, fromPage=${isFromPage})`);
+
+    if (!isFromPage) {
+      await this.igFlowsQueue.add(
+        'comment',
+        {
+          channelId,
+          organizationId,
+          commentExternalId: comment.externalId,
+          parentExternalId: comment.parentExternalId ?? null,
+          mediaId: comment.mediaId,
+          authorExternalId: comment.authorExternalId,
+          authorUsername: comment.authorUsername ?? null,
+          text: comment.text ?? '',
+        } satisfies IgFlowStartCommentJob,
+        {
+          jobId: `comment-${channelId}-${comment.externalId}`,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+    }
     return { created: true };
   }
 

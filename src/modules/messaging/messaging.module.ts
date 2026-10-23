@@ -1,3 +1,4 @@
+import { IG_FLOWS_QUEUE } from '../ig-flows/ig-flows.types';
 import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { AVATAR_HYDRATION_QUEUE } from '../channel-hub/avatars/avatar-hydration.constants';
@@ -36,6 +37,7 @@ import { ContactsRepository } from './contacts/contacts.repository';
       { name: 'inbound-messages' },
       { name: 'outbound-messages' },
       { name: 'chatbot-processor' },
+      { name: IG_FLOWS_QUEUE },
       // Produz aqui (inbox e abertura de conversa); quem consome é o
       // AvatarHydrationProcessor, no ZappfyModule.
       { name: AVATAR_HYDRATION_QUEUE },

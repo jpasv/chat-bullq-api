@@ -17,6 +17,7 @@ import { Request, Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Public } from '../../common/decorators';
+import { IG_FLOWS_QUEUE, POSTBACK_PREFIX } from '../ig-flows/ig-flows.types';
 import { ChannelAdapterRegistry } from './channel-adapter.registry';
 import { ChannelsService } from './channels/channels.service';
 import { WebhookEventsService } from './webhook-events.service';
@@ -35,6 +36,7 @@ export class WebhookGatewayController {
     private readonly webhookEvents: WebhookEventsService,
     private readonly members: MembersChannelService,
     @InjectQueue('inbound-messages') private readonly inboundQueue: Queue,
+    @InjectQueue(IG_FLOWS_QUEUE) private readonly igFlowsQueue: Queue,
   ) {}
 
   @Post(':channelType')
@@ -187,6 +189,24 @@ export class WebhookGatewayController {
         );
         this.logger.log(
           `Enqueued comment: ${comment.externalId} → channel ${channel.id} (${channelType})`,
+        );
+      }
+
+      for (const postback of parseResult.postbacks ?? []) {
+        if (!postback.payload.startsWith(POSTBACK_PREFIX)) continue;
+        await this.igFlowsQueue.add(
+          'postback',
+          {
+            channelId: channel.id,
+            contactExternalId: postback.externalContactId,
+            payload: postback.payload,
+          },
+          {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 },
+            removeOnComplete: true,
+            removeOnFail: false,
+          },
         );
       }
     }

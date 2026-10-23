@@ -71,6 +71,7 @@ export class InstagramInboundAdapter implements InboundChannelPort {
       statuses: [],
       errors: [],
       comments: [],
+      postbacks: [],
     };
 
     try {
@@ -99,6 +100,14 @@ export class InstagramInboundAdapter implements InboundChannelPort {
             if (normalized) {
               result.messages.push(normalized);
             }
+          }
+          if (event.postback?.payload && event.sender?.id) {
+            result.postbacks!.push({
+              externalContactId: String(event.sender.id),
+              payload: String(event.postback.payload),
+              title: event.postback.title,
+              timestamp: new Date(event.timestamp ?? Date.now()),
+            });
           }
           if (event.delivery) {
             const status = this.mapper.normalizeStatus(event);

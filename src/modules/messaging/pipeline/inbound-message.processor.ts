@@ -19,6 +19,7 @@ import { SalesRecoveryService } from '../../sales-recovery/sales-recovery.servic
 import { LeadOnboardingService } from '../../lead-onboarding/lead-onboarding.service';
 import { onboardingReplyDelayMs } from '../../lead-onboarding/onboarding-rules';
 import { SocialCommentsIngestService, CommentJobData } from '../../social-comments/social-comments-ingest.service';
+import { IG_FLOWS_QUEUE } from '../../ig-flows/ig-flows.types';
 import {
   AutomationTrigger,
   ChannelType,
@@ -107,6 +108,7 @@ export class InboundMessageProcessor extends WorkerHost {
     @Inject(forwardRef(() => SocialCommentsIngestService))
     private readonly socialCommentsIngest: SocialCommentsIngestService,
     @InjectQueue('chatbot-processor') private readonly chatbotQueue: Queue,
+    @InjectQueue(IG_FLOWS_QUEUE) private readonly igFlowsQueue: Queue,
   ) {
     super();
   }
@@ -276,6 +278,10 @@ export class InboundMessageProcessor extends WorkerHost {
       this.realtimeGateway.emitToConversation(conversationId, 'message:new', {
         message: savedMessage,
       });
+
+      if (isNew && !isEcho && message.channelType === ChannelType.INSTAGRAM) {
+        await this.enqueueIgFlowEvents(channelId, organizationId, message);
+      }
 
       if (
         !isEcho &&
@@ -562,6 +568,36 @@ export class InboundMessageProcessor extends WorkerHost {
       previewText,
       senderName,
     };
+  }
+
+  /**
+   * Fluxos do Instagram: toda mensagem da pessoa renova a janela de 24h dos
+   * runs dela; resposta a story pode disparar um fluxo STORY_REPLY.
+   */
+  private async enqueueIgFlowEvents(
+    channelId: string,
+    organizationId: string,
+    message: NormalizedInboundMessage,
+  ): Promise<void> {
+    const opts = { attempts: 3, backoff: { type: 'exponential' as const, delay: 2000 }, removeOnComplete: true, removeOnFail: false };
+    await this.igFlowsQueue.add(
+      'interaction',
+      { channelId, contactExternalId: message.externalContactId },
+      opts,
+    );
+    if (message.replyTo?.story?.kind === 'reply') {
+      await this.igFlowsQueue.add(
+        'story',
+        {
+          channelId,
+          organizationId,
+          contactExternalId: message.externalContactId,
+          text: ((message.content ?? {}) as Record<string, any>).text ?? '',
+          messageExternalId: message.externalMessageId,
+        },
+        { ...opts, jobId: `story-${channelId}-${message.externalMessageId}` },
+      );
+    }
   }
 
   private async checkActiveBotForChannel(channelId: string): Promise<boolean> {

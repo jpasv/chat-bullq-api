@@ -1,3 +1,4 @@
+import { IG_FLOWS_QUEUE } from '../ig-flows/ig-flows.types';
 import { Module, OnModuleInit, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ChannelAdapterRegistry } from './channel-adapter.registry';
@@ -40,6 +41,7 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
       { name: 'media-processor' },
       { name: 'chatbot-processor' },
       { name: 'conversation-router' },
+      { name: IG_FLOWS_QUEUE },
       { name: 'sla-timers' },
       { name: CHANNEL_SYNC_QUEUE },
     ),

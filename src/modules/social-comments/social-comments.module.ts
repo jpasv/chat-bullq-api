@@ -1,3 +1,5 @@
+import { BullModule } from '@nestjs/bullmq';
+import { IG_FLOWS_QUEUE } from '../ig-flows/ig-flows.types';
 import { Module, forwardRef } from '@nestjs/common';
 import { InstagramModule } from '../channel-hub/adapters/instagram/instagram.module';
 import { MessagingModule } from '../messaging/messaging.module';
@@ -8,7 +10,12 @@ import { SocialCommentsIngestService } from './social-comments-ingest.service';
 import { SocialCommentsService } from './social-comments.service';
 
 @Module({
-  imports: [InstagramModule, LlmModule, forwardRef(() => MessagingModule)],
+  imports: [
+    InstagramModule,
+    LlmModule,
+    forwardRef(() => MessagingModule),
+    BullModule.registerQueue({ name: IG_FLOWS_QUEUE }),
+  ],
   controllers: [SocialCommentsController],
   providers: [SocialCommentsRepository, SocialCommentsIngestService, SocialCommentsService],
   exports: [SocialCommentsIngestService, SocialCommentsRepository],

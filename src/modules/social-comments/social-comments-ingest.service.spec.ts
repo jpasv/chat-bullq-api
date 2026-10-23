@@ -15,13 +15,15 @@ function build() {
   };
   const http = { getMedia: jest.fn(), getUserProfile: jest.fn().mockResolvedValue(null) };
   const realtime = { emitToChannel: jest.fn() };
+  const igFlowsQueue = { add: jest.fn().mockResolvedValue(undefined) };
   const service = new SocialCommentsIngestService(
     prisma as any,
     repo as any,
     http as any,
     realtime as any,
+    igFlowsQueue as any,
   );
-  return { service, prisma, repo, http, realtime };
+  return { service, prisma, repo, http, realtime, igFlowsQueue };
 }
 
 const comment = {
@@ -54,6 +56,22 @@ describe('SocialCommentsIngestService.ingest', () => {
       mediaThumbnailUrl: 'https://cdn/x.jpg',
     });
     expect(realtime.emitToChannel).toHaveBeenCalledWith('ch1', 'comment:new', expect.objectContaining({ id: 's1' }));
+  });
+
+  it('comentário novo de terceiro enfileira gatilho dos fluxos do Instagram', async () => {
+    const { service, repo, igFlowsQueue } = build();
+    const saved = { id: 's1', ...comment, channelId: 'ch1', parentExternalId: null, isFromPage: false };
+    repo.createOrUpdateFromWebhook.mockResolvedValue({ row: saved, created: true });
+    repo.findEnrichedSibling.mockResolvedValue({ mediaPermalink: 'x' });
+    repo.findThread.mockResolvedValue({ ...saved, replies: [] });
+
+    await service.ingest({ channelId: 'ch1', organizationId: 'org1', comment });
+
+    expect(igFlowsQueue.add).toHaveBeenCalledWith(
+      'comment',
+      expect.objectContaining({ commentExternalId: 'c1', authorExternalId: '5550001', mediaId: 'm1', text: 'Quanto custa?' }),
+      expect.objectContaining({ jobId: 'comment-ch1-c1' }),
+    );
   });
 
   describe('foto do autor', () => {

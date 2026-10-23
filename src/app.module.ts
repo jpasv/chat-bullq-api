@@ -13,6 +13,7 @@ import { RoutingModule } from './modules/routing/routing.module';
 import { QuickRepliesModule } from './modules/quick-replies/quick-replies.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { SocialCommentsModule } from './modules/social-comments/social-comments.module';
+import { IgFlowsModule } from './modules/ig-flows/ig-flows.module';
 import { ChatbotModule } from './modules/chatbot/chatbot.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { RatingsModule } from './modules/ratings/ratings.module';
@@ -60,6 +61,7 @@ import redisConfig from './config/redis.config';
     QuickRepliesModule,
     TagsModule,
     SocialCommentsModule,
+    IgFlowsModule,
     ChatbotModule,
     DashboardModule,
     RatingsModule,

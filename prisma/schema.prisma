@@ -188,26 +188,26 @@ model Organization {
   /// null = usa defaults do código (15, 15, 60, 3).
   watchdogConfig        Json?   @map("watchdog_config")
 
-  members       UserOrganization[]
-  channels      Channel[]
-  contacts      Contact[]
-  conversations Conversation[]
-  departments   Department[]
-  chatbotFlows  ChatbotFlow[]
-  quickReplies  QuickReply[]
-  tags          Tag[]
-  notifications Notification[]
-  invitations   Invitation[]
-  apiKeys       ApiKey[]
-  aiAgents      AiAgent[]
-  aiTools       AiTool[]
-  aiSkills      AiSkill[]
-  inboxViews    InboxView[]
-  pipelines     Pipeline[]
-  cards         Card[]
-  products      Product[]
-  segments      Segment[]
-  projects      Project[]
+  members        UserOrganization[]
+  channels       Channel[]
+  contacts       Contact[]
+  conversations  Conversation[]
+  departments    Department[]
+  chatbotFlows   ChatbotFlow[]
+  quickReplies   QuickReply[]
+  tags           Tag[]
+  notifications  Notification[]
+  invitations    Invitation[]
+  apiKeys        ApiKey[]
+  aiAgents       AiAgent[]
+  aiTools        AiTool[]
+  aiSkills       AiSkill[]
+  inboxViews     InboxView[]
+  pipelines      Pipeline[]
+  cards          Card[]
+  products       Product[]
+  segments       Segment[]
+  projects       Project[]
   socialComments SocialComment[]
 
   @@map("organizations")
@@ -498,31 +498,31 @@ model ContactChannel {
 // ─── Conversations ───────────────────────────────
 
 model Conversation {
-  id              String             @id @default(cuid())
-  organizationId  String             @map("organization_id")
-  channelId       String             @map("channel_id")
+  id               String             @id @default(cuid())
+  organizationId   String             @map("organization_id")
+  channelId        String             @map("channel_id")
   // Quando setado, a conversa pertence a um Segmento (apenas grupos).
   // channelId continua sendo o canal PRINCIPAL do segmento (usado p/ envio,
   // RBAC, realtime). segmentId serve para localizar/deduplicar a conversa de
   // grupo entre os vários canais membros via (segmentId, group_JID).
-  segmentId       String?            @map("segment_id")
+  segmentId        String?            @map("segment_id")
   // Canais baseados em thread (GMAIL): id do thread no provider. Permite
   // 1 conversa por thread de email em vez de 1 por contato — canais de
   // chat (WhatsApp/IG) deixam NULL e continuam chaveando por contato.
-  externalThreadId String?           @map("external_thread_id")
-  contactId       String             @map("contact_id")
-  assignedToId    String?            @map("assigned_to_id")
-  departmentId    String?            @map("department_id")
-  status          ConversationStatus @default(PENDING)
-  subject         String?
-  protocol        String?
-  isGroup         Boolean            @default(false) @map("is_group")
-  lastMessageAt   DateTime?          @map("last_message_at")
-  firstResponseAt DateTime?          @map("first_response_at")
-  closedAt        DateTime?          @map("closed_at")
-  reopenedAt      DateTime?          @map("reopened_at")
-  reopenedCount   Int                @default(0) @map("reopened_count")
-  deletedAt       DateTime?          @map("deleted_at")
+  externalThreadId String?            @map("external_thread_id")
+  contactId        String             @map("contact_id")
+  assignedToId     String?            @map("assigned_to_id")
+  departmentId     String?            @map("department_id")
+  status           ConversationStatus @default(PENDING)
+  subject          String?
+  protocol         String?
+  isGroup          Boolean            @default(false) @map("is_group")
+  lastMessageAt    DateTime?          @map("last_message_at")
+  firstResponseAt  DateTime?          @map("first_response_at")
+  closedAt         DateTime?          @map("closed_at")
+  reopenedAt       DateTime?          @map("reopened_at")
+  reopenedCount    Int                @default(0) @map("reopened_count")
+  deletedAt        DateTime?          @map("deleted_at")
 
   // ─── Archive state ──────────────────────────────
   // Orthogonal to `status` — archived conversations are hidden from the
@@ -578,14 +578,14 @@ model Conversation {
   pins             ConversationPin[]
   cards            Card[]                 @relation("CardConversation")
 
+  // NULLs são distintos no Postgres → não afeta canais de chat.
+  @@unique([channelId, externalThreadId], name: "uq_conv_channel_thread", map: "uq_conv_channel_thread")
   @@index([organizationId, status], name: "idx_conv_org_status")
   @@index([organizationId, assignedToId], name: "idx_conv_org_agent")
   @@index([organizationId, channelId], name: "idx_conv_org_channel")
   @@index([organizationId, isArchived], name: "idx_conv_org_archived")
   @@index([segmentId, contactId], name: "idx_conv_segment_contact")
   @@index([contactId], name: "idx_conv_contact")
-  // NULLs são distintos no Postgres → não afeta canais de chat.
-  @@unique([channelId, externalThreadId], name: "uq_conv_channel_thread", map: "uq_conv_channel_thread")
   @@index([lastMessageAt], name: "idx_conv_last_msg")
   @@map("conversations")
 }
@@ -1779,38 +1779,96 @@ model AutomationRun {
 // aqui fica só o necessário pra cadência, idempotência e achar o lead
 // pela conversa. `state` é string (não enum) pra evoluir sem migration.
 model OnboardingLead {
-  id             String    @id @default(cuid())
-  organizationId String    @map("organization_id")
-  hoppeTaskId    String    @unique @map("hoppe_task_id")
-  contactId      String?   @map("contact_id")
-  conversationId String?   @map("conversation_id")
-  phone          String?
+  id              String    @id @default(cuid())
+  organizationId  String    @map("organization_id")
+  hoppeTaskId     String    @unique @map("hoppe_task_id")
+  contactId       String?   @map("contact_id")
+  conversationId  String?   @map("conversation_id")
+  phone           String?
   // PENDING | CONTACTED | REPLIED | INACTIVE | SCHEDULED | DISQUALIFIED | OPTED_OUT | PAUSED | SKIPPED
-  state          String    @default("PENDING")
-  attempt        Int       @default(0)
-  nextActionAt   DateTime? @map("next_action_at")
-  firstAttemptAt DateTime? @map("first_attempt_at")
-  lastAttemptAt  DateTime? @map("last_attempt_at")
-  attemptDates   Json      @default("[]") @map("attempt_dates")
-  repliedAt      DateTime? @map("replied_at")
-  lastInboundAt  DateTime? @map("last_inbound_at")
-  summaryDueAt   DateTime? @map("summary_due_at")
-  lastSummaryAt  DateTime? @map("last_summary_at")
-  pendingReason  String?   @map("pending_reason")
-  pendingDetail  String?   @map("pending_detail")
-  resumeSentAt   DateTime? @map("resume_sent_at")
-  meetingEventId String?   @map("meeting_event_id")
+  state           String    @default("PENDING")
+  attempt         Int       @default(0)
+  nextActionAt    DateTime? @map("next_action_at")
+  firstAttemptAt  DateTime? @map("first_attempt_at")
+  lastAttemptAt   DateTime? @map("last_attempt_at")
+  attemptDates    Json      @default("[]") @map("attempt_dates")
+  repliedAt       DateTime? @map("replied_at")
+  lastInboundAt   DateTime? @map("last_inbound_at")
+  summaryDueAt    DateTime? @map("summary_due_at")
+  lastSummaryAt   DateTime? @map("last_summary_at")
+  pendingReason   String?   @map("pending_reason")
+  pendingDetail   String?   @map("pending_detail")
+  resumeSentAt    DateTime? @map("resume_sent_at")
+  meetingEventId  String?   @map("meeting_event_id")
   // Criação da última PendingAction já avisada no canal do Hoppe.
-  humanAlertAt   DateTime? @map("human_alert_at")
+  humanAlertAt    DateTime? @map("human_alert_at")
   // Retomadas automáticas desde a última resposta do lead (zera a cada resposta).
-  silentFollowups Int      @default(0) @map("silent_followups")
-  snapshot       Json      @default("{}")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  silentFollowups Int       @default(0) @map("silent_followups")
+  snapshot        Json      @default("{}")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@index([state, nextActionAt], name: "idx_onboarding_state_next")
   @@index([state, summaryDueAt], name: "idx_onboarding_state_summary")
   @@index([conversationId], name: "idx_onboarding_conversation")
   @@index([firstAttemptAt], name: "idx_onboarding_first_attempt")
   @@map("onboarding_leads")
+}
+
+// ─── Fluxos do Instagram (estilo ManyChat) ───────
+// Gatilho (comentário em post/reel ou resposta a story) → grafo de nós em
+// `nodes` (message / condition / http / delay). Formato validado em
+// ig-flows.validator.ts; o editor visual grava esse mesmo JSON.
+
+model IgFlow {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  name           String
+  isActive       Boolean   @default(false) @map("is_active")
+  // canais INSTAGRAM onde o fluxo escuta; vazio = todos da org
+  channelIds     String[]  @default([]) @map("channel_ids")
+  // COMMENT | STORY_REPLY
+  triggerType    String    @map("trigger_type")
+  // { mediaIds?: string[], keywords?: string[], match?: 'contains'|'exact',
+  //   publicReplies?: string[], oncePerContact?: boolean }
+  triggerConfig  Json      @default("{}") @map("trigger_config")
+  nodes          Json      @default("[]")
+  startNodeId    String    @map("start_node_id")
+  priority       Int       @default(0)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  runs IgFlowRun[]
+
+  @@index([organizationId, isActive], name: "idx_ig_flow_org_active")
+  @@map("ig_flows")
+}
+
+model IgFlowRun {
+  id                String    @id @default(cuid())
+  flowId            String    @map("flow_id")
+  organizationId    String    @map("organization_id")
+  channelId         String    @map("channel_id")
+  contactExternalId String    @map("contact_external_id")
+  contactUsername   String?   @map("contact_username")
+  commentExternalId String?   @map("comment_external_id")
+  mediaId           String?   @map("media_id")
+  triggerText       String?   @map("trigger_text") @db.Text
+  // RUNNING | WAITING | WAITING_INTERACTION | DONE | FAILED
+  status            String    @default("RUNNING")
+  currentNodeId     String?   @map("current_node_id")
+  // private reply já gasto: próximas mensagens só depois de a pessoa interagir
+  privateReplyUsed  Boolean   @default(false) @map("private_reply_used")
+  // última mensagem/clique da pessoa — abre a janela de 24h da Meta
+  lastInteractionAt DateTime? @map("last_interaction_at")
+  log               Json      @default("[]")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  flow IgFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@unique([flowId, commentExternalId], name: "uq_ig_flow_run_comment")
+  @@index([channelId, contactExternalId], name: "idx_ig_flow_run_contact")
+  @@map("ig_flow_runs")
 }
