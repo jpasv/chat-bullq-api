@@ -16,12 +16,15 @@ export class UpsertIgFlowDto {
   @IsIn(['COMMENT', 'STORY_REPLY'])
   triggerType!: 'COMMENT' | 'STORY_REPLY';
 
+  // JSON livre como `unknown`: com enableImplicitConversion, um tipo
+  // Record[] faz o class-transformer virar cada nó em Array (grava [[]]).
+  // A forma é validada em ig-flows.validator.ts.
   @IsOptional()
   @IsObject()
-  triggerConfig?: Record<string, unknown>;
+  triggerConfig?: unknown;
 
   @IsArray()
-  nodes!: Record<string, unknown>[];
+  nodes!: unknown;
 
   @IsString()
   startNodeId!: string;
