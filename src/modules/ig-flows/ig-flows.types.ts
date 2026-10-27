@@ -56,6 +56,10 @@ export interface IgFlowDelayNode {
   seconds?: number;
   /** ISO com fuso, ex. 2026-10-23T19:55:00-03:00 */
   until?: string;
+  /** Todo dia nesse horário (HH:mm, Brasília). Mensagens aceitam {{dia_aula}} = "hoje"/"amanhã". */
+  dailyAt?: string;
+  /** Com dailyAt: até quantos minutos depois do horário ainda dispara na hora. */
+  graceMinutes?: number;
   next?: string;
 }
 

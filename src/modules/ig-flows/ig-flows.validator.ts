@@ -60,8 +60,13 @@ export function validateIgFlowNodes(nodes: unknown, startNodeId: string): IgFlow
         ref(n.id, n.next);
         break;
       case 'delay':
-        if (n.seconds === undefined && !n.until) throw new BadRequestException(`${n.id}: informe seconds ou until`);
+        if (n.seconds === undefined && !n.until && !n.dailyAt) {
+          throw new BadRequestException(`${n.id}: informe seconds, until ou dailyAt`);
+        }
         if (n.until && Number.isNaN(Date.parse(n.until))) throw new BadRequestException(`${n.id}: until inválido`);
+        if (n.dailyAt && !/^([01]\d|2[0-3]):[0-5]\d$/.test(n.dailyAt)) {
+          throw new BadRequestException(`${n.id}: dailyAt inválido (HH:mm)`);
+        }
         ref(n.id, n.next);
         break;
       default:

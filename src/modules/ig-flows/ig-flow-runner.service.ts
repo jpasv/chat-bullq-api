@@ -21,6 +21,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import {
   IG_FLOWS_QUEUE,
   IgFlowButton,
+  IgFlowDelayNode,
   IgFlowMessageNode,
   IgFlowNode,
   IgFlowPostbackJob,
@@ -31,6 +32,7 @@ import {
   IgFlowTriggerConfig,
   POSTBACK_PREFIX,
 } from './ig-flows.types';
+import { dayLabel, nextDailyAt } from './ig-flows.schedule';
 import { matchesKeywords } from './ig-flows.validator';
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -266,7 +268,11 @@ export class IgFlowRunnerService {
           break;
         }
         case 'delay': {
-          const ms = node.until ? Date.parse(node.until) - Date.now() : (node.seconds ?? 0) * 1000;
+          const ms = node.dailyAt
+            ? nextDailyAt(node.dailyAt, node.graceMinutes).getTime() - Date.now()
+            : node.until
+              ? Date.parse(node.until) - Date.now()
+              : (node.seconds ?? 0) * 1000;
           if (!node.next) break;
           if (ms <= 0) {
             nodeId = node.next;
@@ -433,15 +439,21 @@ export class IgFlowRunnerService {
     return undefined;
   }
 
-  private vars(run: IgFlowRun): Record<string, string> {
-    return {
+  private vars(run: IgFlowRun & { flow?: IgFlow }): Record<string, string> {
+    const vars: Record<string, string> = {
       username: run.contactUsername ?? '',
       igsid: run.contactExternalId,
       comment: run.triggerText ?? '',
     };
+    // {{dia_aula}} segue o primeiro delay diário do fluxo, pra copy e envio baterem.
+    const daily = ((run.flow?.nodes ?? []) as unknown as IgFlowNode[]).find(
+      (n): n is IgFlowDelayNode => n.type === 'delay' && !!n.dailyAt,
+    );
+    if (daily) vars.dia_aula = dayLabel(daily.dailyAt!, daily.graceMinutes);
+    return vars;
   }
 
-  private render(text: string, run: IgFlowRun): string {
+  private render(text: string, run: IgFlowRun & { flow?: IgFlow }): string {
     return this.interpolate(text, this.vars(run));
   }
 

@@ -167,6 +167,21 @@ describe('IgFlowRunnerService', () => {
     expect(getRun().status).toBe('WAITING');
   });
 
+  it('delay diário agenda pro próximo horário e {{dia_aula}} acompanha', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-27T21:00:00-03:00'));
+    const { service, queue, prisma, instagram } = build({ privateReplyUsed: true, lastInteractionAt: new Date() });
+    const flow = (await prisma.igFlow.findMany())[0];
+    flow.nodes = [
+      { id: 'm', type: 'message', text: 'Aula {{dia_aula}} às 20h', next: 'd' },
+      { id: 'd', type: 'delay', dailyAt: '20:00', next: 'm2' },
+      { id: 'm2', type: 'message', text: 'Ao vivo' },
+    ];
+    await service.execute('r1', 'm');
+    expect(instagram.sendMessage.mock.calls[0][1].message.text).toBe('Aula amanhã às 20h');
+    expect(queue.add).toHaveBeenCalledWith('resume', { runId: 'r1', nodeId: 'm2' }, expect.objectContaining({ delay: 23 * 3600_000 }));
+    jest.useRealTimers();
+  });
+
   it('clique no link devolve a URL e enfileira a continuação uma vez', async () => {
     const { service, queue } = build();
     const url = await service.handleLinkClick('r1', 'b1');
