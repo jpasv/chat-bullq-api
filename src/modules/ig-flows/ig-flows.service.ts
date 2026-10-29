@@ -8,11 +8,50 @@ import { validateIgFlowNodes } from './ig-flows.validator';
 export class IgFlowsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(orgId: string) {
-    return this.prisma.igFlow.findMany({
+  async list(orgId: string) {
+    const flows = await this.prisma.igFlow.findMany({
       where: { organizationId: orgId, deletedAt: null },
       orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
     });
+    if (!flows.length) return [];
+    const grouped = await this.prisma.igFlowRun.groupBy({
+      by: ['flowId', 'status'],
+      where: { flowId: { in: flows.map((f) => f.id) } },
+      _count: { _all: true },
+      _max: { createdAt: true },
+    });
+    return flows.map((flow) => {
+      const rows = grouped.filter((g) => g.flowId === flow.id);
+      return { ...flow, stats: summarizeRuns(rows) };
+    });
+  }
+
+  /** Resumo de execução do fluxo: status, onde as runs em aberto estão e eventos por nó/botão. */
+  async stats(id: string, orgId: string) {
+    await this.get(id, orgId);
+    const [grouped, current, events] = await Promise.all([
+      this.prisma.igFlowRun.groupBy({
+        by: ['flowId', 'status'],
+        where: { flowId: id },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.igFlowRun.groupBy({
+        by: ['currentNodeId', 'status'],
+        where: { flowId: id, status: { notIn: ['DONE'] } },
+        _count: { _all: true },
+      }),
+      this.prisma.$queryRaw<{ nodeId: string | null; event: string; count: bigint }[]>`
+        SELECT e->>'nodeId' AS "nodeId", e->>'event' AS event, count(*) AS count
+        FROM ig_flow_runs r, jsonb_array_elements(r.log) e
+        WHERE r.flow_id = ${id}
+        GROUP BY 1, 2`,
+    ]);
+    return {
+      ...summarizeRuns(grouped),
+      current: current.map((c) => ({ nodeId: c.currentNodeId, status: c.status, count: c._count._all })),
+      events: events.map((e) => ({ nodeId: e.nodeId, event: e.event, count: Number(e.count) })),
+    };
   }
 
   async get(id: string, orgId: string) {
@@ -74,4 +113,16 @@ export class IgFlowsService {
       take: Math.min(limit, 200),
     });
   }
+}
+
+function summarizeRuns(rows: { status: string; _count: { _all: number }; _max: { createdAt: Date | null } }[]) {
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  let lastRunAt: Date | null = null;
+  for (const r of rows) {
+    byStatus[r.status] = r._count._all;
+    total += r._count._all;
+    if (r._max.createdAt && (!lastRunAt || r._max.createdAt > lastRunAt)) lastRunAt = r._max.createdAt;
+  }
+  return { total, byStatus, lastRunAt };
 }

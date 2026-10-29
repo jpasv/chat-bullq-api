@@ -47,6 +47,12 @@ export class IgFlowsController {
     return this.service.remove(id, orgId);
   }
 
+  @Get(':id/stats')
+  @ApiOperation({ summary: 'Resumo de execução do fluxo (status, posição das runs, eventos por nó)' })
+  stats(@Param('id') id: string, @CurrentOrg('id') orgId: string) {
+    return this.service.stats(id, orgId);
+  }
+
   @Get(':id/runs')
   @ApiOperation({ summary: 'Execuções recentes do fluxo (debug)' })
   runs(@Param('id') id: string, @CurrentOrg('id') orgId: string, @Query('limit') limit?: string) {
