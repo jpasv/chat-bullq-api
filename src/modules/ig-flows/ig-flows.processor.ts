@@ -25,6 +25,8 @@ export class IgFlowsProcessor extends WorkerHost {
         return this.runner.startFromComment(job.data as IgFlowStartCommentJob);
       case 'story':
         return this.runner.startFromStory(job.data as IgFlowStartStoryJob);
+      case 'dm':
+        return this.runner.startFromStory(job.data as IgFlowStartStoryJob, 'DM_KEYWORD');
       case 'postback':
         return this.runner.handlePostback(job.data as IgFlowPostbackJob);
       case 'interaction': {

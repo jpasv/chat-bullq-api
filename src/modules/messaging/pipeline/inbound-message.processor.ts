@@ -572,7 +572,8 @@ export class InboundMessageProcessor extends WorkerHost {
 
   /**
    * Fluxos do Instagram: toda mensagem da pessoa renova a janela de 24h dos
-   * runs dela; resposta a story pode disparar um fluxo STORY_REPLY.
+   * runs dela; resposta a story pode disparar um fluxo STORY_REPLY e as
+   * demais mensagens de texto, um fluxo DM_KEYWORD.
    */
   private async enqueueIgFlowEvents(
     channelId: string,
@@ -597,6 +598,21 @@ export class InboundMessageProcessor extends WorkerHost {
         },
         { ...opts, jobId: `story-${channelId}-${message.externalMessageId}` },
       );
+    } else {
+      const text = ((message.content ?? {}) as Record<string, any>).text;
+      if (typeof text === 'string' && text.trim()) {
+        await this.igFlowsQueue.add(
+          'dm',
+          {
+            channelId,
+            organizationId,
+            contactExternalId: message.externalContactId,
+            text,
+            messageExternalId: message.externalMessageId,
+          },
+          { ...opts, jobId: `dm-${channelId}-${message.externalMessageId}` },
+        );
+      }
     }
   }
 

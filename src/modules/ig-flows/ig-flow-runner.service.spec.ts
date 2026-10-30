@@ -122,6 +122,24 @@ describe('IgFlowRunnerService', () => {
     expect(instagram.sendMessage).not.toHaveBeenCalled();
   });
 
+  it('palavra-chave na DM dispara fluxo DM_KEYWORD e manda direto pra conversa', async () => {
+    const { service, prisma, instagram } = build({ commentExternalId: null });
+    const dmJob = { channelId: 'ch1', organizationId: 'org1', contactExternalId: 'u1', text: 'live', messageExternalId: 'mid1' };
+    await service.startFromStory(dmJob, 'DM_KEYWORD');
+
+    expect(prisma.igFlow.findMany.mock.calls[0][0].where.triggerType).toBe('DM_KEYWORD');
+    expect(prisma.igFlowRun.create.mock.calls[0][0].data.privateReplyUsed).toBe(true);
+    expect(instagram.sendMessage).toHaveBeenCalledTimes(1);
+    expect(instagram.sendMessage.mock.calls[0][1].recipient).toEqual({ id: 'u1' });
+  });
+
+  it('fluxo DM_KEYWORD sem palavra-chave não pega qualquer mensagem', async () => {
+    const { service, prisma } = build();
+    prisma.igFlow.findMany.mockResolvedValue([{ id: 'f2', triggerConfig: {}, channelIds: [], nodes: FLOW_NODES, startNodeId: 'c' }]);
+    await service.startFromStory({ channelId: 'ch1', organizationId: 'org1', contactExternalId: 'u1', text: 'oi', messageExternalId: 'mid2' }, 'DM_KEYWORD');
+    expect(prisma.igFlowRun.create).not.toHaveBeenCalled();
+  });
+
   it('clique em "Tô seguindo" recheca e manda o link via redirect pra DM', async () => {
     const { service, instagram, getRun } = build({ privateReplyUsed: true });
     instagram.getFollowsBusiness.mockResolvedValue(true);

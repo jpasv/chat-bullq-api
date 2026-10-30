@@ -107,10 +107,13 @@ export class IgFlowRunnerService {
     await this.execute(run.id, flow.startNodeId);
   }
 
-  async startFromStory(job: IgFlowStartStoryJob): Promise<void> {
-    const flows = await this.activeFlows(job.organizationId, job.channelId, 'STORY_REPLY');
+  /** Resposta a story ou palavra-chave na DM: a pessoa já abriu a janela de 24h. */
+  async startFromStory(job: IgFlowStartStoryJob, triggerType: 'STORY_REPLY' | 'DM_KEYWORD' = 'STORY_REPLY'): Promise<void> {
+    const flows = await this.activeFlows(job.organizationId, job.channelId, triggerType);
     const flow = flows.find((f) => {
       const cfg = (f.triggerConfig ?? {}) as IgFlowTriggerConfig;
+      // DM sem palavra-chave pegaria qualquer conversa.
+      if (triggerType === 'DM_KEYWORD' && !cfg.keywords?.length) return false;
       return matchesKeywords(job.text, cfg.keywords, cfg.match);
     });
     if (!flow) return;
@@ -130,7 +133,7 @@ export class IgFlowRunnerService {
         lastInteractionAt: new Date(),
       },
     });
-    this.logger.log(`Flow ${flow.id} (${flow.name}) disparado por story: run=${run.id}`);
+    this.logger.log(`Flow ${flow.id} (${flow.name}) disparado por ${triggerType}: run=${run.id}`);
     await this.execute(run.id, flow.startNodeId);
   }
 
