@@ -1,6 +1,7 @@
 export const IG_FLOWS_QUEUE = 'ig-flows';
 
-export type IgFlowTriggerType = 'COMMENT' | 'STORY_REPLY';
+/** DM_KEYWORD: palavra-chave mandada direto na DM (ex.: "skill"). */
+export type IgFlowTriggerType = 'COMMENT' | 'STORY_REPLY' | 'DM_KEYWORD';
 
 export interface IgFlowTriggerConfig {
   /** Posts/reels específicos; vazio = qualquer post. Só COMMENT. */

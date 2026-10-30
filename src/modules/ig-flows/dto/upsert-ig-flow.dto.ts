@@ -13,8 +13,8 @@ export class UpsertIgFlowDto {
   @IsString({ each: true })
   channelIds?: string[];
 
-  @IsIn(['COMMENT', 'STORY_REPLY'])
-  triggerType!: 'COMMENT' | 'STORY_REPLY';
+  @IsIn(['COMMENT', 'STORY_REPLY', 'DM_KEYWORD'])
+  triggerType!: 'COMMENT' | 'STORY_REPLY' | 'DM_KEYWORD';
 
   // JSON livre como `unknown`: com enableImplicitConversion, um tipo
   // Record[] faz o class-transformer virar cada nó em Array (grava [[]]).
