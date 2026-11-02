@@ -207,3 +207,35 @@ describe('IgFlowRunnerService', () => {
     expect(queue.add).toHaveBeenCalledWith('resume', { runId: 'r1', nodeId: 'h' }, expect.objectContaining({ jobId: 'click-r1-b1' }));
   });
 });
+
+
+describe('story reply DM keyword fallback', () => {
+  const job = { channelId: 'ch1', organizationId: 'org1', contactExternalId: 'u1', text: 'Skill', messageExternalId: 'mid1' };
+
+  it('starts a DM keyword flow when no story flow matches', async () => {
+    const { service, prisma } = build();
+    prisma.igFlow.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { id: 'skill', channelIds: [], triggerConfig: { keywords: ['skill'], match: 'exact' }, startNodeId: 'start' },
+    ]);
+    jest.spyOn(service as any, 'execute').mockResolvedValue(undefined);
+    await service.startFromStory(job);
+    expect(prisma.igFlowRun.create).toHaveBeenCalledTimes(1);
+    expect(prisma.igFlowRun.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ flowId: 'skill' }) }));
+  });
+
+  it('prefers a matching story flow without starting a second DM flow', async () => {
+    const { service, prisma } = build();
+    prisma.igFlow.findMany.mockResolvedValue([{ id: 'story', channelIds: [], triggerConfig: { keywords: ['skill'] }, startNodeId: 'start' }]);
+    jest.spyOn(service as any, 'execute').mockResolvedValue(undefined);
+    await service.startFromStory(job);
+    expect(prisma.igFlow.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.igFlowRun.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start any flow when neither trigger matches', async () => {
+    const { service, prisma } = build();
+    await service.startFromStory(job);
+    expect(prisma.igFlow.findMany).toHaveBeenCalledTimes(2);
+    expect(prisma.igFlowRun.create).not.toHaveBeenCalled();
+  });
+});

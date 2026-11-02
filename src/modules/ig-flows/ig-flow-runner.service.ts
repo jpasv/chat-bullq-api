@@ -116,7 +116,12 @@ export class IgFlowRunnerService {
       if (triggerType === 'DM_KEYWORD' && !cfg.keywords?.length) return false;
       return matchesKeywords(job.text, cfg.keywords, cfg.match);
     });
-    if (!flow) return;
+    if (!flow) {
+      // Story replies are also DMs. Prefer a matching story flow, then
+      // fall back to DM keywords without starting two flows for one message.
+      if (triggerType === 'STORY_REPLY') await this.startFromStory(job, 'DM_KEYWORD');
+      return;
+    }
     const cfg = (flow.triggerConfig ?? {}) as IgFlowTriggerConfig;
     if (await this.alreadyRan(flow, cfg, job.contactExternalId)) return;
 
