@@ -1,3 +1,4 @@
+import { isIgFlowHandlingConversation } from '../../../ig-flows/ig-flow-ai-guard';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -52,6 +53,12 @@ export class ReplyToConversationTool implements AiTool {
     const text = String(input.text ?? '').trim();
     if (!text) {
       return { output: { ok: false, error: 'text is empty' } };
+    }
+
+    if (await isIgFlowHandlingConversation(this.prisma, {
+      id: ctx.conversationId, channelId: ctx.channelId, contactId: ctx.contactId, organizationId: ctx.organizationId,
+    })) {
+      return { output: { ok: false, error: 'instagram_flow_active', message: 'A automação está atendendo esta conversa. Não envie mensagens; encerre este turno.' } };
     }
 
     // Guard contra raciocínio verbalizado. Se o LLM tentar mandar uma

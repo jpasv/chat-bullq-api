@@ -1,3 +1,4 @@
+import { isIgFlowHandlingConversation } from '../../ig-flows/ig-flow-ai-guard';
 import { Injectable, Logger } from '@nestjs/common';
 import { Conversation, Organization } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -214,6 +215,9 @@ export class AgentRouterService {
     //   org.aiEnabled (true/false) — global
     // Qualquer "false" mais específico bloqueia mesmo se mais genérico está ON.
     // "true" mais específico libera mesmo se mais genérico está OFF.
+    if (await isIgFlowHandlingConversation(this.prisma, conversation)) {
+      return { handle: false, reason: 'instagram-flow-active' };
+    }
     const convOverride = conversation.aiEnabled;
 
     if (convOverride === false) {

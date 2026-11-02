@@ -1,3 +1,4 @@
+import { isIgFlowHandlingConversation } from '../../ig-flows/ig-flow-ai-guard';
 import { Injectable, Logger } from '@nestjs/common';
 import {
   AiFinalAction,
@@ -104,6 +105,8 @@ export class AiAgentRunnerService {
     triggerMessage,
     chainDepth = 0,
   }: RunInput): Promise<void> {
+    if (await isIgFlowHandlingConversation(this.prisma, conversation)) return;
+
     // Fase 2: usa o agentRouter (com IntentClassifier) pra escolher o agent.
     // Auto-chains (chainDepth > 0) NÃO classificam de novo — já tem activeAgentId.
     let selection: AgentSelection | null = null;
