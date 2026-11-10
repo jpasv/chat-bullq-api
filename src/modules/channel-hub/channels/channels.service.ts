@@ -18,6 +18,7 @@ import { InstagramHttpClient } from '../adapters/instagram/instagram.http-client
 import { GmailHttpClient } from '../adapters/gmail/gmail.http-client';
 import { ChannelSyncOrchestrator } from '../sync/channel-sync.orchestrator';
 import { isMaskedValue, restoreMaskedConfig } from './channel-secrets';
+import { RealtimeGateway } from '../../realtime/realtime.gateway';
 import {
   ChannelAccessService,
   type ChannelAccess,
@@ -37,6 +38,7 @@ export class ChannelsService {
     private readonly syncOrchestrator: ChannelSyncOrchestrator,
     private readonly prisma: PrismaService,
     private readonly channelAccess: ChannelAccessService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   async create(
@@ -223,6 +225,9 @@ export class ChannelsService {
         visibility,
         callerUserOrganizationId,
       );
+      // Quem está conectado agora sai/entra da room do canal na hora, em vez
+      // de só no próximo reconnect.
+      await this.realtime.resyncChannelRoom(organizationId, id);
     }
 
     // Placeholders mascarados ("********…") voltam do diálogo de edição
