@@ -68,6 +68,28 @@ export class LeadOnboardingRepository {
     });
   }
 
+  /**
+   * Outro lead já abordou este telefone (8 últimos dígitos)? Conta quem está em
+   * andamento, quem pediu pra sair e quem recebeu a 1ª mensagem desde `since`.
+   * Evita abordar a mesma pessoa por tasks duplicadas no Hoppe (incidente de 11/2026:
+   * milhares de tasks do mesmo lead viraram milhares de mensagens).
+   */
+  findOtherByPhone(leadId: string, digits: string, since: Date): Promise<OnboardingLead | null> {
+    const tail = digits.replace(/\D/g, '').slice(-8);
+    if (tail.length < 8) return Promise.resolve(null);
+    return this.prisma.onboardingLead.findFirst({
+      where: {
+        id: { not: leadId },
+        phone: { endsWith: tail },
+        OR: [
+          { state: { in: ['CONTACTED', 'REPLIED', 'SCHEDULED', 'PAUSED', 'OPTED_OUT'] } },
+          { firstAttemptAt: { gte: since } },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   findById(id: string): Promise<OnboardingLead | null> {
     return this.prisma.onboardingLead.findUnique({ where: { id } });
   }

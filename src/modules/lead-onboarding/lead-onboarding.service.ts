@@ -39,6 +39,8 @@ import {
 const HOUR = 3_600_000;
 const SUMMARY_DEBOUNCE_MS = 30 * 60 * 1000;
 const MEETING_MS = HOUR;
+// Mesma janela da regra "conversa com o Tiago nos últimos 30 dias": telefone abordado nesse prazo não recebe outra abertura.
+const SAME_PHONE_WINDOW_MS = 30 * 24 * HOUR;
 
 export type QualificationResult = 'qualificado' | 'aguardando_socios' | 'desqualificado';
 
@@ -145,6 +147,10 @@ export class LeadOnboardingService {
       await this.safe(() => this.hoppe.setField(lead.hoppeTaskId, HOPPE_FIELD.ATIVIDADE, ATIVIDADE.INATIVO));
       return this.skip(lead, `o número ${snapshot.phone} não tem WhatsApp`);
     }
+    const other = await this.repo.findOtherByPhone(lead.id, target.digits, new Date(now.getTime() - SAME_PHONE_WINDOW_MS));
+    if (other) {
+      return this.skip(lead, `o número ${target.digits} já está sendo abordado pela task ${other.hoppeTaskId}`);
+    }
 
     let sent: { conversationId: string; contactId: string };
     try {
@@ -183,6 +189,7 @@ export class LeadOnboardingService {
 
   private async sendAttempt(lead: OnboardingLead, attempt: 2 | 3, now: Date): Promise<void> {
     if (await this.deferIfNeeded(lead, now, false)) return;
+    if (await this.taskGone(lead)) return this.skip(lead, 'task não existe mais no Hoppe');
     const snapshot = this.snapshotOf(lead);
     if (!lead.phone || !lead.conversationId) return this.skip(lead, 'lead sem telefone/conversa resolvidos');
     if (await this.blockedByConversation(lead, now)) return;
@@ -362,6 +369,7 @@ export class LeadOnboardingService {
       return;
     }
     if (await this.deferIfNeeded(lead, now, false)) return;
+    if (await this.taskGone(lead)) return this.skip(lead, 'task não existe mais no Hoppe');
     // Bola com o time (humano, aprovação pendente, resposta devida): não cutuca o lead.
     if (await this.messenger.followupGuard(lead.conversationId)) {
       await this.repo.update(lead.id, { nextActionAt: null });
@@ -508,6 +516,11 @@ export class LeadOnboardingService {
       }
     }
     return false;
+  }
+
+  /** Task apagada no Hoppe (ex.: duplicada removida): não manda mais nada por ela. */
+  private async taskGone(lead: OnboardingLead): Promise<boolean> {
+    return (await this.hoppe.getTask(lead.hoppeTaskId)) === null;
   }
 
   private async skip(lead: OnboardingLead, motivo: string): Promise<void> {
