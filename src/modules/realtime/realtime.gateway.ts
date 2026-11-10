@@ -136,6 +136,42 @@ export class RealtimeGateway
     return [...ids];
   }
 
+  /**
+   * Confere se o socket enxerga o canal. O snapshot `client.data.channelIds`
+   * vem do handshake; canal criado ou liberado depois do connect não está
+   * nele. Nesse caso re-resolve no banco (e realinha as rooms) antes de
+   * recusar — senão o admin que acabou de criar um canal ficaria preso até
+   * reconectar.
+   */
+  private async ensureChannelAccess(
+    client: Socket,
+    channelId: string,
+  ): Promise<boolean> {
+    const current = (client.data.channelIds as string[] | undefined) ?? [];
+    if (current.includes(channelId)) return true;
+
+    const { organizationId, userOrganizationId, role } = client.data as {
+      organizationId?: string;
+      userOrganizationId?: string;
+      role?: OrgRole;
+    };
+    if (!organizationId || !userOrganizationId || !role) return false;
+
+    const fresh = await this.resolveChannelRoomsForMembership(
+      organizationId,
+      userOrganizationId,
+      role,
+    );
+    for (const id of fresh) {
+      if (!current.includes(id)) client.join(`channel:${id}`);
+    }
+    for (const id of current) {
+      if (!fresh.includes(id)) client.leave(`channel:${id}`);
+    }
+    client.data.channelIds = fresh;
+    return fresh.includes(channelId);
+  }
+
   async handleDisconnect(client: Socket) {
     if (client.data.userId) {
       await this.presence.setOffline(
@@ -171,32 +207,32 @@ export class RealtimeGateway
       }
     }
 
-    if (!this.channelAccess.isBypassRole(client.data.role)) {
-      const conv = await this.prisma.conversation.findUnique({
-        where: { id: data.conversationId },
-        select: { channelId: true, organizationId: true },
+    // Mesma regra do REST pra todo role: canal PRIVATE exige grant até pra
+    // OWNER/ADMIN. Antes o bypass pulava esta checagem e um admin conseguia
+    // entrar na room de conversa de canal privado que a API não deixava abrir.
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: data.conversationId },
+      select: { channelId: true, organizationId: true },
+    });
+    if (!conv || conv.organizationId !== client.data.organizationId) {
+      this.logger.warn(
+        `join:conversation rejected: conv ${data.conversationId} not in org ${client.data.organizationId}`,
+      );
+      client.emit('join:conversation:error', {
+        conversationId: data.conversationId,
+        reason: 'org-mismatch',
       });
-      if (!conv || conv.organizationId !== client.data.organizationId) {
-        this.logger.warn(
-          `join:conversation rejected: conv ${data.conversationId} not in org ${client.data.organizationId}`,
-        );
-        client.emit('join:conversation:error', {
-          conversationId: data.conversationId,
-          reason: 'org-mismatch',
-        });
-        return;
-      }
-      const channelIds = (client.data.channelIds as string[] | undefined) ?? [];
-      if (!channelIds.includes(conv.channelId)) {
-        this.logger.warn(
-          `join:conversation rejected: user ${client.data.userId} has no grant on channel ${conv.channelId}`,
-        );
-        client.emit('join:conversation:error', {
-          conversationId: data.conversationId,
-          reason: 'no-channel-grant',
-        });
-        return;
-      }
+      return;
+    }
+    if (!(await this.ensureChannelAccess(client, conv.channelId))) {
+      this.logger.warn(
+        `join:conversation rejected: user ${client.data.userId} has no grant on channel ${conv.channelId}`,
+      );
+      client.emit('join:conversation:error', {
+        conversationId: data.conversationId,
+        reason: 'no-channel-grant',
+      });
+      return;
     }
     client.join(`conv:${data.conversationId}`);
     client.data.activeConversationId = data.conversationId;
@@ -300,5 +336,55 @@ export class RealtimeGateway
       s.data.channelIds = ids.filter((id) => id !== channelId);
     }
     this.emitToUser(userId, 'permissions:updated', { channelId, granted: false });
+  }
+
+  /**
+   * Realinha a room `channel:<id>` com a visibilidade atual do canal. Chamado
+   * quando o canal vira PRIVATE (ou volta pra ORG): quem já estava conectado
+   * sem grant sai da room na hora e para de receber `message:new`; quem passou
+   * a enxergar entra. Sem isto o socket só se realinhava no próximo reconnect,
+   * e um admin continuava recebendo push de canal privado alheio.
+   */
+  async resyncChannelRoom(
+    organizationId: string,
+    channelId: string,
+  ): Promise<void> {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, organizationId },
+      select: {
+        visibility: true,
+        deletedAt: true,
+        channelAgents: { select: { userOrganizationId: true } },
+      },
+    });
+    const alive = !!channel && !channel.deletedAt;
+    const grants = new Set(
+      channel?.channelAgents.map((g) => g.userOrganizationId) ?? [],
+    );
+    const room = `channel:${channelId}`;
+
+    const sockets = await this.server.in(`org:${organizationId}`).fetchSockets();
+    for (const s of sockets) {
+      const userOrganizationId = s.data.userOrganizationId as string | undefined;
+      const role = s.data.role as OrgRole | undefined;
+      if (!userOrganizationId || !role) continue;
+
+      const allowed =
+        alive &&
+        (grants.has(userOrganizationId) ||
+          (channel!.visibility === 'ORG' && this.channelAccess.isBypassRole(role)));
+      const ids = (s.data.channelIds as string[] | undefined) ?? [];
+      const inRoom = ids.includes(channelId);
+      if (allowed === inRoom) continue;
+
+      if (allowed) {
+        s.join(room);
+        s.data.channelIds = [...ids, channelId];
+      } else {
+        s.leave(room);
+        s.data.channelIds = ids.filter((id) => id !== channelId);
+      }
+      s.emit('permissions:updated', { channelId, granted: allowed });
+    }
   }
 }
