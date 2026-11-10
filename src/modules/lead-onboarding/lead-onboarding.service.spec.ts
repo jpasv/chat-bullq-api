@@ -47,6 +47,7 @@ function build(opts: { lead?: any; task?: any; firstAttemptsToday?: number } = {
     findByConversation: jest.fn(),
     claim: jest.fn().mockResolvedValue(true),
     boughtConsultoria: jest.fn().mockResolvedValue(false),
+    findOtherByPhone: jest.fn().mockResolvedValue(null),
     updateIfState: jest.fn(async (id: string, _states: string[], data: any) => {
       await repo.update(id, data);
       return true;
@@ -158,6 +159,33 @@ describe('LeadOnboardingService.tick', () => {
     await service.tick(brt('2026-10-18T10:00:00'));
     expect(repo.update.mock.calls.at(-1)![1].state).toBe('SKIPPED');
     expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('conversa existente'));
+  });
+
+  it('telefone já abordado por outro lead vira SKIPPED sem enviar (task duplicada no Hoppe)', async () => {
+    const { service, repo, hoppe, messenger } = build();
+    repo.findOtherByPhone.mockResolvedValue({ id: 'lead0', hoppeTaskId: 'task-original', state: 'CONTACTED' });
+    await service.tick(brt('2026-10-18T10:00:00'));
+    expect(repo.findOtherByPhone).toHaveBeenCalledWith('lead1', '5511975286081', expect.any(Date));
+    expect(messenger.send).not.toHaveBeenCalled();
+    expect(repo.update.mock.calls.at(-1)![1].state).toBe('SKIPPED');
+    expect(hoppe.addComment).toHaveBeenCalledWith(TASK, expect.stringContaining('task-original'));
+  });
+
+  it('CONTACTED cuja task foi apagada no Hoppe vira SKIPPED sem mandar a retomada', async () => {
+    const lead = leadRow({ state: 'CONTACTED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara', produto: '57 Agents Advocacia' } });
+    const { service, repo, messenger } = build({ lead, task: null });
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send).not.toHaveBeenCalled();
+    expect(repo.update.mock.calls.at(-1)![1].state).toBe('SKIPPED');
+  });
+
+  it('REPLIED cuja task foi apagada no Hoppe não recebe retomada', async () => {
+    const lead = leadRow({ state: 'REPLIED', attempt: 1, conversationId: 'conv1', phone: '5511975286081', snapshot: { firstName: 'Mayara' } });
+    const { service, repo, messenger } = build({ lead, task: null });
+    (messenger as any).followupGuard = jest.fn().mockResolvedValue(null);
+    await service.tick(brt('2026-10-18T14:00:00'));
+    expect(messenger.send).not.toHaveBeenCalled();
+    expect(repo.update.mock.calls.at(-1)![1].state).toBe('SKIPPED');
   });
 
   it('lead com conversa em outro canal recebe a tentativa pelo canal de abordagem, em conversa nova', async () => {
