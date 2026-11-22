@@ -29,6 +29,7 @@ import {
 import { WatchdogService } from '../../routing/watchdog/watchdog.service';
 import { SegmentReadService } from '../../segments/segment-read.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
+import { isUazapiFileUrl } from '../../channel-hub/adapters/zappfy/zappfy-media-url';
 import { ContactResolverService } from '../pipeline/contact-resolver.service';
 import { ConversationResolverService } from '../pipeline/conversation-resolver.service';
 
@@ -648,9 +649,11 @@ export class MessagesService {
     access: ChannelAccess,
   ): Promise<string> {
     const current = typeof content.mediaUrl === 'string' ? content.mediaUrl : '';
-    if (current && !this.looksUnplayableMedia(current)) return current;
+    // Link da Uazapi expira em ~2 dias: passa pelo resolver, que re-hospeda.
+    const isTemporary = !!current && isUazapiFileUrl(current);
+    if (current && !isTemporary && !this.looksUnplayableMedia(current)) return current;
 
-    if (!current) {
+    if (!current || isTemporary) {
       const { url } = await this.mediaResolver.resolve(
         source.id,
         organizationId,

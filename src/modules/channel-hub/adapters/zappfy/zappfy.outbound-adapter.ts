@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ChannelType, Channel } from '@prisma/client';
-import { OutboundChannelPort } from '../../ports/outbound-channel.port';
+import {
+  OutboundChannelPort,
+  ResolveMediaHint,
+} from '../../ports/outbound-channel.port';
 import {
   NormalizedOutboundMessage,
   SendResult,
@@ -8,6 +11,7 @@ import {
 } from '../../ports/types';
 import { ZappfyMessageMapper } from './zappfy.message-mapper';
 import { ZappfyHttpClient } from './zappfy.http-client';
+import { UploadsService } from '../../../messaging/messages/uploads.service';
 
 @Injectable()
 export class ZappfyOutboundAdapter implements OutboundChannelPort {
@@ -17,6 +21,7 @@ export class ZappfyOutboundAdapter implements OutboundChannelPort {
   constructor(
     private readonly mapper: ZappfyMessageMapper,
     private readonly httpClient: ZappfyHttpClient,
+    private readonly uploads: UploadsService,
   ) {}
 
   async sendMessage(
@@ -72,11 +77,39 @@ export class ZappfyOutboundAdapter implements OutboundChannelPort {
     return this.httpClient.getMediaBuffer(channel, mediaId);
   }
 
+  /**
+   * Pede a mídia decifrada à Uazapi e guarda uma cópia no nosso disco. O
+   * link que a Uazapi devolve expira em ~2 dias (ver isUazapiFileUrl) — sem
+   * a cópia, áudio/imagem/documento com mais de 2 dias não abria mais.
+   * Mesmo esquema do adapter do WhatsApp oficial.
+   *
+   * Se a cópia falhar (arquivo acima do limite, disco), devolve o link da
+   * Uazapi mesmo: funciona por ~2 dias e o MediaResolverService tenta
+   * re-hospedar de novo na próxima vez que alguém abrir a mídia.
+   */
   async resolveInboundMediaUrl(
     channel: Channel,
-    hint: { externalMessageId: string },
+    hint: ResolveMediaHint,
   ): Promise<{ fileUrl: string; mimeType?: string }> {
-    return this.httpClient.resolveInboundMediaUrl(channel, hint.externalMessageId);
+    const resolved = await this.httpClient.resolveInboundMediaUrl(
+      channel,
+      hint.externalMessageId,
+    );
+    try {
+      const buffer = await this.httpClient.getMediaBuffer(channel, resolved.fileUrl);
+      const saved = await this.uploads.saveInboundMedia({
+        buffer,
+        mimeType: resolved.mimeType || hint.mimeType || 'application/octet-stream',
+        channelId: channel.id,
+        originalFilename: hint.originalFilename ?? null,
+      });
+      return { fileUrl: saved.url, mimeType: saved.mimeType };
+    } catch (error: any) {
+      this.logger.warn(
+        `Re-host da mídia ${hint.externalMessageId} falhou, usando link temporário da Uazapi: ${error?.message}`,
+      );
+      return resolved;
+    }
   }
 
   async deleteMessage(
