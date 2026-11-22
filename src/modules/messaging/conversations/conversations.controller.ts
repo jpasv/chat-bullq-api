@@ -52,6 +52,12 @@ export class ConversationsController {
   @ApiOperation({ summary: 'List conversations (inbox)' })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'channelId', required: false })
+  @ApiQuery({
+    name: 'channelIds',
+    required: false,
+    description:
+      'CSV de IDs de canais. Lista conversas de QUALQUER um deles. Tem precedência sobre channelId.',
+  })
   @ApiQuery({ name: 'assignedToId', required: false })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false })
@@ -97,6 +103,7 @@ export class ConversationsController {
     @Query('hoppeId') hoppeId?: string,
     @Query('responsibleUserId') responsibleUserId?: string,
     @Query('projectStatus') projectStatus?: string,
+    @Query('channelIds') channelIds?: string,
   ) {
     const archivedScope =
       archived === 'only' || archived === 'any' ? archived : 'exclude';
@@ -110,11 +117,16 @@ export class ConversationsController {
       ?.split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+    const parsedChannelIds = channelIds
+      ?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     return this.service.findInbox(
       orgId,
       {
         status,
         channelId,
+        channelIds: parsedChannelIds?.length ? parsedChannelIds : undefined,
         assignedToId,
         search,
         archived: archivedScope,
