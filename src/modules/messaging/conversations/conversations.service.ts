@@ -138,6 +138,8 @@ export class ConversationsService {
    * Participantes de uma conversa de grupo, pro autocomplete de menção.
    * O provider só devolve telefone e LID, então o nome vem dos nossos
    * contatos; sem match, cai no próprio telefone formatado.
+   * `lid` vai junto porque menção feita no celular chega como `@<LID>`, não
+   * `@<telefone>` — sem ele o front não consegue trocar pelo nome.
    * Retorna [] quando não é grupo ou o canal não é Zappfy — o front trata
    * lista vazia como "sem menção disponível".
    */
@@ -145,7 +147,15 @@ export class ConversationsService {
     id: string,
     organizationId: string,
     access: ChannelAccess = 'ALL',
-  ): Promise<Array<{ phone: string; name: string; avatarUrl: string | null; isAdmin: boolean }>> {
+  ): Promise<
+    Array<{
+      phone: string;
+      lid: string | null;
+      name: string;
+      avatarUrl: string | null;
+      isAdmin: boolean;
+    }>
+  > {
     const conversation = await this.findOne(id, organizationId, access);
     if (!conversation.isGroup) return [];
 
@@ -157,7 +167,7 @@ export class ConversationsService {
     });
     if (!channel || channel.type !== ChannelType.WHATSAPP_ZAPPFY) return [];
 
-    let participants: Array<{ phone: string; isAdmin: boolean }>;
+    let participants: Array<{ phone: string; lid?: string; isAdmin: boolean }>;
     try {
       participants = await this.zappfyHttp.fetchGroupParticipants(
         channel,
@@ -189,6 +199,7 @@ export class ConversationsService {
       const known = byPhone.get(p.phone);
       return {
         phone: p.phone,
+        lid: p.lid ? p.lid.replace(/@.*$/, '') || null : null,
         name: known?.name || formatPhone(p.phone),
         // Foto de quem manda mensagem no grupo: sai daqui quando o
         // participante também é um contato nosso.
