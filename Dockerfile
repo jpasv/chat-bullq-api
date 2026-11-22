@@ -17,7 +17,10 @@ RUN npx prisma generate
 RUN yarn build
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl curl tini
+# ffmpeg: UploadsService.saveAudio converte áudio gravado (m4a do iPhone,
+# webm do navegador) pra ogg/opus, único formato de áudio de voz que o
+# WhatsApp aceita. Sem ele todo upload de áudio que não é ogg dá 400.
+RUN apk add --no-cache openssl curl tini ffmpeg
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
