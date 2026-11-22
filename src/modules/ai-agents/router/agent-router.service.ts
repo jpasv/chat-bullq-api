@@ -246,9 +246,12 @@ export class AgentRouterService {
       if (!org.aiEnabled) {
         return { handle: false, reason: 'org.aiEnabled=false' };
       }
-      if (!this.isWithinBusinessHours(org)) {
-        return { handle: false, reason: 'outside-business-hours' };
-      }
+    }
+
+    // Janela de horário vale SEMPRE, inclusive com override ON em conv/canal:
+    // o override liga a IA, mas não autoriza responder cliente de madrugada.
+    if (!this.isWithinBusinessHours(org)) {
+      return { handle: false, reason: 'outside-business-hours' };
     }
 
     // Mesmo com override pra ON, ainda precisa existir um agente ativo
