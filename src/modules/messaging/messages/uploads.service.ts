@@ -162,6 +162,27 @@ export class UploadsService {
     }
   }
 
+  /**
+   * True quando a URL é um upload nosso (`/api/v1/uploads/...`) cujo arquivo
+   * não existe mais no disco — ex.: mídia salva antes do volume persistente
+   * (jul/2026), que sumia a cada deploy. Quem cacheia URL de mídia usa isso
+   * pra re-resolver em vez de servir um link morto.
+   */
+  isMissingLocalUpload(url: string): boolean {
+    const prefix = `${this.publicBaseUrl}/`;
+    if (!url.startsWith(prefix)) return false;
+    let relative = url.slice(prefix.length).split(/[?#]/)[0];
+    try {
+      relative = decodeURIComponent(relative);
+    } catch {
+      // Mantém cru — no pior caso o arquivo não é achado e a mídia é re-resolvida.
+    }
+    const fullPath = path.resolve(this.rootDir, relative);
+    // Path traversal: fora do diretório de uploads não é nosso.
+    if (!fullPath.startsWith(this.rootDir + path.sep)) return false;
+    return !fs.existsSync(fullPath);
+  }
+
   async saveInboundMedia(input: {
     buffer: Buffer;
     mimeType: string;

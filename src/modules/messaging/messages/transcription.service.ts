@@ -4,6 +4,7 @@ import { PrismaService } from '../../../database/prisma.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
 import { MediaResolverService } from './media-resolver.service';
 import axios from 'axios';
+import { isUazapiFileUrl } from '../../channel-hub/adapters/zappfy/zappfy-media-url';
 
 export interface TranscriptionResult {
   text: string;
@@ -152,7 +153,9 @@ export class TranscriptionService {
     let mediaUrl: string | undefined = content.mediaUrl;
     let mimeType: string | undefined = content.mimeType;
 
-    if (!mediaUrl && !mediaId) {
+    // Link da Uazapi guardado pode já ter expirado (~2 dias): o resolver
+    // re-hospeda enquanto dá e devolve uma URL nossa.
+    if ((!mediaUrl || isUazapiFileUrl(mediaUrl)) && !mediaId) {
       // Resolver will hit the provider (Uazapi's /message/download etc.),
       // cache the URL on content.mediaUrl, and return it. Subsequent calls
       // skip the provider roundtrip.

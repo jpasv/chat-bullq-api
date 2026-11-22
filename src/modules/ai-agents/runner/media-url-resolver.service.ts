@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../../../database/prisma.service';
 import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
+import { isUazapiFileUrl } from '../../channel-hub/adapters/zappfy/zappfy-media-url';
 
 /**
  * Resolve URLs playable de mídia inbound em batch, pré-build do prompt.
@@ -156,6 +157,9 @@ export class MediaUrlResolverService {
    * assumimos que está viva (não vale um HEAD por mensagem a cada run).
    */
   private isStillServable(url: string): boolean {
+    // Link temporário da Uazapi: morre em ~2 dias; re-resolve (o adapter
+    // devolve cópia local permanente).
+    if (isUazapiFileUrl(url)) return false;
     const localPath = this.localUploadPath(url);
     if (!localPath) return true;
     return fs.existsSync(localPath);
