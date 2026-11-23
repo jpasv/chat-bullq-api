@@ -199,6 +199,11 @@ export class ConversationsController {
       "List the current user's pinned conversations (not paginated — bounded by the per-user pin cap)",
   })
   @ApiQuery({ name: 'channelId', required: false })
+  @ApiQuery({
+    name: 'channelIds',
+    required: false,
+    description: 'CSV de canais (vários números ao mesmo tempo), igual ao GET /conversations',
+  })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'groups', required: false })
   @ApiQuery({ name: 'tagIds', required: false })
@@ -209,6 +214,7 @@ export class ConversationsController {
     @CurrentUser('id') userId: string,
     @CurrentChannelAccess() access: ChannelAccess,
     @Query('channelId') channelId?: string,
+    @Query('channelIds') channelIds?: string,
     @Query('search') search?: string,
     @Query('groups') groups?: string,
     @Query('tagIds') tagIds?: string,
@@ -221,10 +227,15 @@ export class ConversationsController {
       ?.split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+    const parsedChannelIds = channelIds
+      ?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     return this.service.findPinnedInbox(
       orgId,
       {
         channelId,
+        channelIds: parsedChannelIds?.length ? parsedChannelIds : undefined,
         kind,
         tagIds: parsedTagIds?.length ? parsedTagIds : undefined,
         assignedToId,
