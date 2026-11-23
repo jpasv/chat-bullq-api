@@ -82,7 +82,10 @@ export class ConversationsRepository {
       },
     },
     tags: { include: { tag: true } },
-    _count: { select: { messages: true } },
+    // `_count.messages` NÃO entra aqui: o Prisma resolve `_count` com um
+    // LEFT JOIN num agregado da tabela `messages` inteira, o que custava
+    // ~16s por carregamento da inbox. `attachMessageCounts` conta só as
+    // conversas da página.
   };
 
   /**
@@ -273,7 +276,7 @@ export class ConversationsRepository {
       ? this.foldIdConstraint(where, filters.excludeConversationIds, 'notIn')
       : where;
 
-    const [conversations, total] = await this.prisma.$transaction([
+    const [page, total] = await this.prisma.$transaction([
       this.prisma.conversation.findMany({
         where: finalWhere,
         include: this.listInclude,
@@ -283,6 +286,7 @@ export class ConversationsRepository {
       }),
       this.prisma.conversation.count({ where: finalWhere }),
     ]);
+    const conversations = await this.attachMessageCounts(page);
 
     // Per-user unread counters. Caller passes currentUserId; the user's
     // ConversationRead row holds the lastReadAt cursor and we count INBOUND
@@ -312,18 +316,42 @@ export class ConversationsRepository {
     if (where === null) return [];
     const finalWhere = this.foldIdConstraint(where, pinnedIds, 'in');
 
-    const rows = await this.prisma.conversation.findMany({
-      where: finalWhere,
-      include: this.listInclude,
-      orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } },
-      take: 200,
-    });
+    const rows = await this.attachMessageCounts(
+      await this.prisma.conversation.findMany({
+        where: finalWhere,
+        include: this.listInclude,
+        orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        take: 200,
+      }),
+    );
 
     const enriched = currentUserId
       ? await this.attachUnreadCounts(rows, currentUserId)
       : rows.map((c) => ({ ...c, unreadCount: 0 }));
 
     return enriched.map((c) => ({ ...c, isPinnedByMe: true }));
+  }
+
+  /**
+   * Total de mensagens por conversa, só das conversas recebidas. Devolve o
+   * mesmo formato que o `include._count` do Prisma (`_count.messages`).
+   */
+  private async attachMessageCounts<T extends { id: string }>(
+    conversations: T[],
+  ): Promise<Array<T & { _count: { messages: number } }>> {
+    if (conversations.length === 0) return [];
+    const grouped = await this.prisma.message.groupBy({
+      by: ['conversationId'],
+      where: { conversationId: { in: conversations.map((c) => c.id) } },
+      _count: { _all: true },
+    });
+    const totalByConv = new Map(
+      grouped.map((g) => [g.conversationId, g._count._all]),
+    );
+    return conversations.map((c) => ({
+      ...c,
+      _count: { messages: totalByConv.get(c.id) ?? 0 },
+    }));
   }
 
   private async attachUnreadCounts<
