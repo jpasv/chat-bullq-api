@@ -934,6 +934,7 @@ export class ConversationsService {
     organizationId: string,
     filters: {
       channelId?: string;
+      channelIds?: string[];
       kind?: 'INDIVIDUAL' | 'GROUP';
       tagIds?: string[];
       assignedToId?: string;
@@ -949,6 +950,7 @@ export class ConversationsService {
     const inboxFilters: InboxFilters = {
       organizationId,
       channelId: filters.channelId,
+      channelIds: filters.channelIds,
       kind: filters.kind,
       tagIds: filters.tagIds,
       assignedToId: filters.assignedToId,
