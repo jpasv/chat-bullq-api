@@ -160,6 +160,22 @@ export class ZappfyHttpClient {
   }
 
   /**
+   * Arquiva/desarquiva o chat no WhatsApp do número (o app no celular).
+   * Endpoint: `POST /chat/archive` com `{ number, archive }` — aceita o JID
+   * completo (`@s.whatsapp.net`, `@g.us`).
+   */
+  async archiveChat(
+    channel: Channel,
+    chatJid: string,
+    archive: boolean,
+  ): Promise<void> {
+    await this.sendRequest(channel, '/chat/archive', {
+      number: chatJid,
+      archive,
+    });
+  }
+
+  /**
    * Apaga a mensagem pra todos no WhatsApp via Uazapi.
    * Endpoint: `POST /message/delete` com `{ id: <externalMessageId> }`.
    * Uazapi devolve 200 mesmo quando a janela do WhatsApp já passou (o
