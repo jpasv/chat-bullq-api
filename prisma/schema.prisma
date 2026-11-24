@@ -466,6 +466,9 @@ model Contact {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
   deletedAt      DateTime? @map("deleted_at")
+  /// name sem acento/maiúscula pra busca. Mantido por trigger no banco
+  /// (migration 20261124120000_contact_search_name) — não gravar.
+  searchName     String?   @map("search_name")
 
   organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channels      ContactChannel[]
@@ -476,6 +479,8 @@ model Contact {
 
   @@index([organizationId, phone], name: "idx_contact_org_phone")
   @@index([organizationId, email], name: "idx_contact_org_email")
+  @@index([searchName(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_contact_search_name_trgm")
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_contact_phone_trgm")
   @@map("contacts")
 }
 

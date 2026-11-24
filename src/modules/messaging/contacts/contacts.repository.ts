@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { normalizeSearchText, toPhoneSearch } from '../../../common/search/normalize-search';
 
 @Injectable()
 export class ContactsRepository {
@@ -14,12 +15,14 @@ export class ContactsRepository {
   ) {
     const where: Prisma.ContactWhereInput = { organizationId, deletedAt: null };
 
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search } },
-        { email: { contains: search, mode: 'insensitive' } },
-      ];
+    const searchTerm = search?.trim();
+    if (searchTerm) {
+      // Nome sem acento/maiúscula (search_name), telefone só pelos dígitos.
+      const searchName = normalizeSearchText(searchTerm);
+      const phone = toPhoneSearch(searchTerm);
+      where.OR = [{ email: { contains: searchTerm, mode: 'insensitive' } }];
+      if (searchName) where.OR.push({ searchName: { contains: searchName } });
+      if (phone) where.OR.push({ phone: { contains: phone } });
     }
 
     const [contacts, total] = await this.prisma.$transaction([
