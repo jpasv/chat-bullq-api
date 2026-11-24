@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { ClientLogsModule } from './modules/client-logs/client-logs.module';
 import { UsersModule } from './modules/users/users.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { ChannelHubModule } from './modules/channel-hub/channel-hub.module';
@@ -52,6 +53,7 @@ import redisConfig from './config/redis.config';
     ChannelAccessModule,
     AuthModule,
     UsersModule,
+    ClientLogsModule,
     OrganizationsModule,
     RealtimeModule,
     ChannelHubModule,
