@@ -14,7 +14,7 @@ const EXTRA_FROM = 'øđłħŧıð';
 const EXTRA_TO = 'odlhtid';
 const EXTRA_MAP = new Map([...EXTRA_FROM].map((ch, i) => [ch, EXTRA_TO[i]]));
 
-const COMBINING_MARKS = /[̀-ͯ]/g;
+const COMBINING_MARKS = /[\u0300-\u036f]/g;
 const PHONE_LIKE = /^[\d\s()+.-]+$/;
 
 export function normalizeSearchText(value: string): string {
@@ -34,4 +34,18 @@ export function toPhoneSearch(value: string): string | null {
   if (!PHONE_LIKE.test(term)) return null;
   const digits = term.replace(/\D/g, '');
   return digits || null;
+}
+
+/**
+ * Protocolo de conversa é `AAAAMMDD-XXXXXX` (20261124-RONH6V). Só parece
+ * protocolo termo sem espaço, com dígito e com letra (ou começando pela
+ * data e hífen) — telefone e nome ficam de fora, e a busca deles não
+ * precisa varrer a tabela de conversas.
+ */
+export function looksLikeProtocol(value: string): boolean {
+  const term = value.trim();
+  if (!term || /\s/.test(term) || !/\d/.test(term)) return false;
+  // "99045-1258" é telefone; "20261124-" é começo de protocolo.
+  if (PHONE_LIKE.test(term)) return /^\d{8}-/.test(term);
+  return /[a-z]/i.test(term);
 }

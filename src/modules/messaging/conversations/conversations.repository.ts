@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConversationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { normalizeSearchText, toPhoneSearch } from '../../../common/search/normalize-search';
+import {
+  looksLikeProtocol,
+  normalizeSearchText,
+  toPhoneSearch,
+} from '../../../common/search/normalize-search';
 
 export interface InboxFilters {
   organizationId: string;
@@ -210,17 +214,23 @@ export class ConversationsRepository {
     if (searchTerm) {
       // Nome comparado sem acento/maiúscula (search_name, índice trigram);
       // telefone só pelos dígitos e só quando o termo parece telefone;
-      // protocolo (20261124-RONH6V) só quando tem dígito. Cada OR a mais
-      // sem índice obrigava a varrer a tabela inteira — era o que deixava
-      // a busca em vários segundos e estourava a memória do Postgres.
+      // protocolo (20261124-RONH6V) só quando o termo parece protocolo.
+      // Varrer a tabela inteira deixava a busca em segundos e estourava a
+      // memória compartilhada do Postgres (erro 53100).
       // Vai num AND próprio: o filtro de etiquetas acima também usa OR, e
       // atribuir where.OR aqui apagava ele.
+      // Nome e telefone num só filtro de contato: vira um único
+      // `contact_id IN (...)` que o Postgres resolve pelos índices trigram.
+      // Dois IN separados num OR (ou o protocolo, que é coluna da própria
+      // conversa) obrigam a varrer as conversas inteiras.
       const searchName = normalizeSearchText(searchTerm);
       const phone = toPhoneSearch(searchTerm);
+      const contactOr: Prisma.ContactWhereInput[] = [];
+      if (searchName) contactOr.push({ searchName: { contains: searchName } });
+      if (phone) contactOr.push({ phone: { contains: phone } });
       const or: Prisma.ConversationWhereInput[] = [];
-      if (searchName) or.push({ contact: { searchName: { contains: searchName } } });
-      if (phone) or.push({ contact: { phone: { contains: phone } } });
-      if (/\d/.test(searchTerm)) {
+      if (contactOr.length > 0) or.push({ contact: { OR: contactOr } });
+      if (looksLikeProtocol(searchTerm)) {
         or.push({ protocol: { contains: searchTerm, mode: 'insensitive' } });
       }
       if (or.length > 0) {
