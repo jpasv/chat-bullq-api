@@ -1,4 +1,4 @@
-import { normalizeSearchText, toPhoneSearch } from './normalize-search';
+import { looksLikeProtocol, normalizeSearchText, toPhoneSearch } from './normalize-search';
 
 describe('normalizeSearchText', () => {
   it('ignora maiúscula, acento e espaço sobrando', () => {
@@ -25,5 +25,20 @@ describe('toPhoneSearch', () => {
   it('não trata nome como telefone', () => {
     expect(toPhoneSearch('joão 2')).toBeNull();
     expect(toPhoneSearch('   ')).toBeNull();
+  });
+});
+
+describe('looksLikeProtocol', () => {
+  it('reconhece protocolo inteiro ou pedaço', () => {
+    expect(looksLikeProtocol('20261124-RONH6V')).toBe(true);
+    expect(looksLikeProtocol('ronh6v')).toBe(true);
+    expect(looksLikeProtocol('20261124-')).toBe(true);
+  });
+
+  it('não confunde com telefone nem nome', () => {
+    expect(looksLikeProtocol('21990451258')).toBe(false);
+    expect(looksLikeProtocol('(21) 99045')).toBe(false);
+    expect(looksLikeProtocol('99045-1258')).toBe(false);
+    expect(looksLikeProtocol('joão')).toBe(false);
   });
 });
