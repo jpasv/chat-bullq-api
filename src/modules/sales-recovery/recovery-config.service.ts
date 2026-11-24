@@ -153,6 +153,32 @@ export class RecoveryConfigService {
     return null;
   }
 
+  /**
+   * IA nas conversas da recuperação. `RECOVERY_AI_ENABLED=false` → a conversa
+   * nasce (ou é reaproveitada) com a IA desligada e quem responde é gente/
+   * Bravy OS. Default true (comportamento original: a IA conduz o funil).
+   */
+  get aiEnabled(): boolean {
+    return (this.config.get<string>('RECOVERY_AI_ENABLED') ?? 'true').trim().toLowerCase() !== 'false';
+  }
+
+  /**
+   * Só cards criados a partir deste instante (`RECOVERY_ACTIVE_SINCE`, ISO)
+   * recebem mensagem — abertura ou lembrete. Serve pra (re)ligar o envio sem
+   * disparar a fila antiga de uma vez. Vazio = sem corte.
+   */
+  get activeSince(): Date | null {
+    const raw = this.config.get<string>('RECOVERY_ACTIVE_SINCE');
+    if (!raw) return null;
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  isInActiveWindow(cardCreatedAt: Date): boolean {
+    const since = this.activeSince;
+    return !since || cardCreatedAt >= since;
+  }
+
   /** Cron do watchdog de cards parados. Default: a cada 30min. */
   get watchdogPattern(): string {
     return (

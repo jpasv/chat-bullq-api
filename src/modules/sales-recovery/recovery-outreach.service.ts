@@ -349,6 +349,15 @@ export class RecoveryOutreachService {
       select: { id: true },
     });
     if (open) {
+      // Recuperação sem IA (RECOVERY_AI_ENABLED=false): quem responde é
+      // gente/Bravy OS — só garante a IA desligada nessa conversa.
+      if (!this.config.aiEnabled) {
+        await this.prisma.conversation.update({
+          where: { id: open.id },
+          data: { aiEnabled: false },
+        });
+        return open.id;
+      }
       // Reaproveitando conversa existente: força o bot a assumir o funil de
       // recuperação — religa a IA, volta pra BOT e tira atribuição humana
       // (decisão do produto: a recuperação é conduzida pela IA). Sem isso,
@@ -372,11 +381,12 @@ export class RecoveryOutreachService {
         organizationId,
         channelId,
         contactId,
-        status: ConversationStatus.BOT,
-        aiEnabled: true,
+        // Sem IA a conversa nasce PENDING (pra gente/Bravy OS), não BOT.
+        status: this.config.aiEnabled ? ConversationStatus.BOT : ConversationStatus.PENDING,
+        aiEnabled: this.config.aiEnabled,
         protocol,
         isGroup: false,
-        activeAgentId: agentId ?? undefined,
+        activeAgentId: this.config.aiEnabled ? (agentId ?? undefined) : undefined,
       },
       select: { id: true },
     });
@@ -384,7 +394,7 @@ export class RecoveryOutreachService {
       data: {
         conversationId: conversation.id,
         action: 'CREATED',
-        toValue: ConversationStatus.BOT,
+        toValue: this.config.aiEnabled ? ConversationStatus.BOT : ConversationStatus.PENDING,
         metadata: { trigger: 'sales_recovery_outreach' },
       },
     });

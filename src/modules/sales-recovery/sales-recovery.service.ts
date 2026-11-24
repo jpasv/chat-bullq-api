@@ -145,6 +145,8 @@ export class SalesRecoveryService {
       include: { contact: { select: { name: true } } },
     });
     if (!card || card.status !== 'OPEN' || !card.contactId) return;
+    // Card de antes da (re)ativação não recebe nada (RECOVERY_ACTIVE_SINCE).
+    if (!this.config.isInActiveWindow(card.createdAt)) return;
 
     // Só dispara se ainda está em Oportunidade — se já pagou/mudou, não manda.
     const oppStageId = await this.repo.resolveStageId(
@@ -293,6 +295,9 @@ export class SalesRecoveryService {
       include: { contact: { select: { name: true } } },
     });
     if (!card || card.status !== 'OPEN') return 'skipped';
+    // Card de antes da (re)ativação: sem lembrete nem mudança de etapa — a
+    // fila antiga não recebe nada (RECOVERY_ACTIVE_SINCE).
+    if (!this.config.isInActiveWindow(card.createdAt)) return 'skipped';
 
     const meta = (card.metadata as Record<string, any>) ?? {};
     const attempts = Number(meta?.outreach?.attempts ?? 1);
