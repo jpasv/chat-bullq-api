@@ -2,7 +2,7 @@ import { normalizeSearchText, toPhoneSearch } from './normalize-search';
 
 describe('normalizeSearchText', () => {
   it('ignora maiúscula, acento e espaço sobrando', () => {
-    for (const input of ['joao', 'João', 'JOÃO', '  joão  ', 'João']) {
+    for (const input of ['joao', 'João', 'JOÃO', '  joão  ', 'Jo\u0061\u0303o']) {
       expect(normalizeSearchText(input)).toBe('joao');
     }
   });

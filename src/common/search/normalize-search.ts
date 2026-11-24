@@ -14,7 +14,7 @@ const EXTRA_FROM = 'øđłħŧıð';
 const EXTRA_TO = 'odlhtid';
 const EXTRA_MAP = new Map([...EXTRA_FROM].map((ch, i) => [ch, EXTRA_TO[i]]));
 
-const COMBINING_MARKS = /[̀-ͯ]/g;
+const COMBINING_MARKS = /[\u0300-\u036f]/g;
 const PHONE_LIKE = /^[\d\s()+.-]+$/;
 
 export function normalizeSearchText(value: string): string {
