@@ -179,6 +179,53 @@ export class RecoveryConfigService {
     return !since || cardCreatedAt >= since;
   }
 
+  /**
+   * Canais cujas mensagens recentes bloqueiam o envio (`RECOVERY_GUARD_CHANNEL_IDS`,
+   * CSV): se nas últimas `cooldownHours` saiu QUALQUER mensagem pro telefone
+   * por um deles (de gente ou automação), a recuperação não manda. Vazio =
+   * só o cooldown entre mensagens da própria recuperação.
+   */
+  get guardChannelIds(): string[] {
+    return this.csv('RECOVERY_GUARD_CHANNEL_IDS');
+  }
+
+  /**
+   * Horário de envio (`RECOVERY_SEND_WINDOW`, ex. "8-21": das 8h às 21h, no
+   * fuso `RECOVERY_TIMEZONE`, padrão America/Sao_Paulo). Fora dele a abertura
+   * espera o começo da janela. Vazio = qualquer hora.
+   */
+  get sendWindow(): { start: number; end: number } | null {
+    const m = (this.config.get<string>('RECOVERY_SEND_WINDOW') ?? '').match(/^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$/);
+    if (!m) return null;
+    const start = Number(m[1]);
+    const end = Number(m[2]);
+    return start >= 0 && end <= 24 && start < end ? { start, end } : null;
+  }
+
+  get timezone(): string {
+    return this.config.get<string>('RECOVERY_TIMEZONE') ?? 'America/Sao_Paulo';
+  }
+
+  /**
+   * Milissegundos até a janela de envio abrir; 0 = pode mandar agora.
+   */
+  msUntilSendWindow(now: Date = new Date()): number {
+    const win = this.sendWindow;
+    if (!win) return 0;
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: this.timezone,
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const secondsNow = get('hour') * 3600 + get('minute') * 60 + get('second');
+    if (secondsNow >= win.start * 3600 && secondsNow < win.end * 3600) return 0;
+    const wait = (win.start * 3600 - secondsNow + 86400) % 86400;
+    return wait * 1000;
+  }
+
   /** Cron do watchdog de cards parados. Default: a cada 30min. */
   get watchdogPattern(): string {
     return (

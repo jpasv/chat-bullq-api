@@ -155,9 +155,37 @@ export class SalesRecoveryService {
     );
     if (card.stageId !== oppStageId) return;
 
+    // Fora do horário de envio: reagenda pro começo da janela. Na hora
+    // confere de novo se ainda está em Oportunidade (não pagou).
+    const waitMs = this.config.msUntilSendWindow();
+    if (waitMs > 0) {
+      await this.outreachQueue.add(
+        RECOVERY_OUTREACH_JOB,
+        { cardId },
+        {
+          delay: waitMs,
+          jobId: `recovery-window-${cardId}`,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 30_000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+      this.logger.log(
+        `Outreach fora do horário, reagendado em ${Math.round(waitMs / 60000)}min card=${cardId}`,
+      );
+      return;
+    }
+
     // Cooldown: no máx 1 mensagem de recuperação por contato a cada 24h.
     if (await this.hasRecentOutreach(card.organizationId, card.contactId)) {
       this.logger.log(`Outreach pulado (cooldown ${this.config.cooldownHours}h) card=${cardId}`);
+      return;
+    }
+    // Trava contra dobro: já saiu qualquer mensagem pra esse telefone nos
+    // canais vigiados nas últimas 24h (gente ou automação) → não manda.
+    if (await this.hasRecentMessageOnGuardChannels(card.organizationId, card.contactId)) {
+      this.logger.log(`Outreach pulado (mensagem recente nos canais vigiados) card=${cardId}`);
       return;
     }
 
@@ -206,6 +234,47 @@ export class SalesRecoveryService {
     if (sent) {
       await this.moveToKey(card.organizationId, cardId, 'contact_attempt');
     }
+  }
+
+  /**
+   * Saiu alguma mensagem (OUTBOUND, de qualquer remetente) pro telefone desse
+   * contato nos canais vigiados dentro da janela de cooldown? Compara pelo
+   * telefone, não só pelo contato: o mesmo número pode ter contato diferente
+   * por canal, e o celular BR pode vir com ou sem o 9.
+   */
+  private async hasRecentMessageOnGuardChannels(
+    organizationId: string,
+    contactId: string,
+  ): Promise<boolean> {
+    const channelIds = this.config.guardChannelIds;
+    if (channelIds.length === 0) return false;
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { phone: true },
+    });
+    const phones = phoneVariants(contact?.phone ?? null);
+    const contactIds = new Set<string>([contactId]);
+    if (phones.length) {
+      const same = await this.prisma.contact.findMany({
+        where: { organizationId, phone: { in: phones }, deletedAt: null },
+        select: { id: true },
+      });
+      for (const c of same) contactIds.add(c.id);
+    }
+    const since = new Date(Date.now() - this.config.cooldownHours * 60 * 60 * 1000);
+    const recent = await this.prisma.message.findFirst({
+      where: {
+        direction: 'OUTBOUND',
+        createdAt: { gt: since },
+        conversation: {
+          organizationId,
+          channelId: { in: channelIds },
+          contactId: { in: [...contactIds] },
+        },
+      },
+      select: { id: true },
+    });
+    return !!recent;
   }
 
   /** Já houve mensagem de recuperação pro contato dentro da janela de cooldown? */
@@ -307,10 +376,14 @@ export class SalesRecoveryService {
       return 'lost';
     }
 
+    // Lembrete só no horário de envio; fora dele o cron tenta de novo depois.
+    if (this.config.msUntilSendWindow() > 0) return 'skipped';
+
     const channelId = this.config.outreachChannelId;
     const cooldownOk =
       card.contactId &&
-      !(await this.hasRecentOutreach(organizationId, card.contactId));
+      !(await this.hasRecentOutreach(organizationId, card.contactId)) &&
+      !(await this.hasRecentMessageOnGuardChannels(organizationId, card.contactId));
     if (card.contactId && channelId && cooldownOk) {
       const cc = await this.prisma.contactChannel.findFirst({
         where: { contactId: card.contactId, channelId },
@@ -469,3 +542,20 @@ export class SalesRecoveryService {
     });
   }
 }
+
+/**
+ * Formas do mesmo telefone como podem estar gravadas: só dígitos, com "+",
+ * e celular BR com e sem o nono dígito (WhatsApp às vezes entrega sem).
+ */
+export function phoneVariants(raw: string | null): string[] {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  if (!digits) return [];
+  const set = new Set<string>([digits]);
+  const withNine = digits.match(/^55(\d{2})9(\d{8})$/);
+  if (withNine) set.add(`55${withNine[1]}${withNine[2]}`);
+  const withoutNine = digits.match(/^55(\d{2})(\d{8})$/);
+  if (withoutNine) set.add(`55${withoutNine[1]}9${withoutNine[2]}`);
+  for (const d of [...set]) set.add(`+${d}`);
+  return [...set];
+}
+
