@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConversationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { normalizeSearchText, toPhoneSearch } from '../../../common/search/normalize-search';
 
 export interface InboxFilters {
   organizationId: string;
@@ -205,12 +206,27 @@ export class ConversationsRepository {
     }
     if (filters.assignedToId) where.assignedToId = filters.assignedToId;
     if (filters.stuckOnly) where.isStuck = true;
-    if (filters.search) {
-      where.OR = [
-        { contact: { name: { contains: filters.search, mode: 'insensitive' } } },
-        { contact: { phone: { contains: filters.search } } },
-        { protocol: { contains: filters.search } },
-      ];
+    const searchTerm = filters.search?.trim();
+    if (searchTerm) {
+      // Nome comparado sem acento/maiúscula (search_name, índice trigram);
+      // telefone só pelos dígitos e só quando o termo parece telefone;
+      // protocolo (20261124-RONH6V) só quando tem dígito. Cada OR a mais
+      // sem índice obrigava a varrer a tabela inteira — era o que deixava
+      // a busca em vários segundos e estourava a memória do Postgres.
+      // Vai num AND próprio: o filtro de etiquetas acima também usa OR, e
+      // atribuir where.OR aqui apagava ele.
+      const searchName = normalizeSearchText(searchTerm);
+      const phone = toPhoneSearch(searchTerm);
+      const or: Prisma.ConversationWhereInput[] = [];
+      if (searchName) or.push({ contact: { searchName: { contains: searchName } } });
+      if (phone) or.push({ contact: { phone: { contains: phone } } });
+      if (/\d/.test(searchTerm)) {
+        or.push({ protocol: { contains: searchTerm, mode: 'insensitive' } });
+      }
+      if (or.length > 0) {
+        const existingAnd = where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : [];
+        where.AND = [...existingAnd, { OR: or }];
+      }
     }
 
     // "Unread only" filter — materialize the exact set of conversation ids
