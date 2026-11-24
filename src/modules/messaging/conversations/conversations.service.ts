@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { ChannelType, Conversation, ConversationStatus } from '@prisma/client';
+import { Channel, ChannelType, Conversation, ConversationStatus } from '@prisma/client';
 import { ConversationsRepository, InboxFilters } from './conversations.repository';
 import { ConversationFsmService } from './conversation-fsm.service';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
@@ -742,13 +742,16 @@ export class ConversationsService {
     actorId: string,
     access: ChannelAccess = 'ALL',
   ) {
-    await this.findOne(id, organizationId, access);
+    const conversation = await this.findOne(id, organizationId, access);
     const updated = await this.prisma.conversation.update({
       where: { id },
       data: archived
         ? { isArchived: true, archivedAt: new Date(), archivedById: actorId }
         : { isArchived: false, archivedAt: null, archivedById: null },
     });
+    // Espelha no WhatsApp do celular sem segurar a resposta: se o provider
+    // falhar, o arquivo no Chat BullQ continua valendo.
+    void this.syncArchiveToProvider(conversation, archived);
 
     await this.prisma.conversationAuditLog.create({
       data: {
@@ -761,6 +764,34 @@ export class ConversationsService {
 
     this.broadcastUpdate(updated as Conversation);
     return updated;
+  }
+
+  /**
+   * Arquiva/desarquiva o chat no app do WhatsApp (canal Zappfy). WhatsApp
+   * Oficial e Instagram não têm arquivar na API — lá fica só no Chat BullQ.
+   */
+  private async syncArchiveToProvider(
+    conversation: {
+      id: string;
+      channelId: string;
+      channel?: Channel | null;
+      contact?: { channels?: Array<{ channelId: string; externalId: string }> } | null;
+    },
+    archived: boolean,
+  ): Promise<void> {
+    const channel = conversation.channel;
+    if (channel?.type !== ChannelType.WHATSAPP_ZAPPFY) return;
+    const chatJid = conversation.contact?.channels?.find(
+      (ch) => ch.channelId === conversation.channelId,
+    )?.externalId;
+    if (!chatJid) return;
+    try {
+      await this.zappfyHttp.archiveChat(channel, chatJid, archived);
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao ${archived ? 'arquivar' : 'desarquivar'} ${conversation.id} no WhatsApp: ${err.message}`,
+      );
+    }
   }
 
   async assignToMe(
