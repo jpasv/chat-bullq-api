@@ -79,6 +79,18 @@ export function normalizePhone(input: unknown): string | null {
   return digits.length >= 10 ? digits : null;
 }
 
+/**
+ * Id vindo da Kirvano, ou null. O carrinho abandonado chega com
+ * `checkout_id: "null"` (texto): tratado como id, ele juntava o abandono de
+ * pessoas diferentes num card só (dedupe por checkout).
+ */
+export function cleanKirvanoId(input: unknown): string | null {
+  if (input == null) return null;
+  const s = String(input).trim();
+  if (!s || ['null', 'undefined', 'none'].includes(s.toLowerCase())) return null;
+  return s;
+}
+
 export function normalizeKirvano(payload: any): KirvanoNormalized {
   const event = String(payload?.event ?? '').trim();
   const products: any[] = Array.isArray(payload?.products)
@@ -91,8 +103,8 @@ export function normalizeKirvano(payload: any): KirvanoNormalized {
   return {
     event,
     category: classifyKirvanoEvent(event),
-    saleId: payload?.sale_id ? String(payload.sale_id) : null,
-    checkoutId: payload?.checkout_id ? String(payload.checkout_id) : null,
+    saleId: cleanKirvanoId(payload?.sale_id),
+    checkoutId: cleanKirvanoId(payload?.checkout_id),
     productUuid: primary?.id ? String(primary.id) : null,
     offerId: primary?.offer_id ? String(primary.offer_id) : null,
     productName: primary?.name ? String(primary.name) : null,
