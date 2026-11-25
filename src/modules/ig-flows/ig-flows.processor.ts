@@ -34,7 +34,7 @@ export class IgFlowsProcessor extends WorkerHost {
         return this.runner.handleInteraction(data.channelId, data.contactExternalId);
       }
       case 'resume':
-        return this.runner.resume(job.data as IgFlowResumeJob);
+        return this.runner.resume(job.data as IgFlowResumeJob, job.id);
       default:
         this.logger.warn(`Job desconhecido: ${job.name}`);
     }

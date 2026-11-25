@@ -200,6 +200,31 @@ describe('IgFlowRunnerService', () => {
     jest.useRealTimers();
   });
 
+  // Bravy OS 25/11 (LIDER CTO): execução encerrada (DONE/FAILED, ex.: cancelada pelo time) não volta pelo job de atraso;
+  // antes o resume punha RUNNING de novo e mandava a mensagem do horário.
+  it('job de atraso não retoma execução encerrada (DONE ou FAILED)', async () => {
+    for (const status of ['DONE', 'FAILED']) {
+      const { service, instagram, getRun, prisma } = build({ status, privateReplyUsed: true, lastInteractionAt: new Date() });
+      await service.resume({ runId: 'r1', nodeId: 'm3' }, 'delay-r1-d');
+      expect(instagram.sendMessage).not.toHaveBeenCalled();
+      expect(getRun().status).toBe(status);
+      expect(prisma.igFlowRun.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'RUNNING' }) }));
+    }
+  });
+
+  it('job de atraso retoma a execução em espera; a continuação do clique segue como antes', async () => {
+    const espera = build({ status: 'WAITING', privateReplyUsed: true, lastInteractionAt: new Date() });
+    await espera.service.resume({ runId: 'r1', nodeId: 'm3' }, 'delay-r1-d');
+    expect(espera.instagram.sendMessage).toHaveBeenCalledTimes(1);
+    expect(espera.getRun().status).toBe('DONE');
+    const clique = build({ status: 'DONE', privateReplyUsed: true, lastInteractionAt: new Date() });
+    await clique.service.resume({ runId: 'r1', nodeId: 'm3' }, 'click-r1-b1');
+    expect(clique.instagram.sendMessage).toHaveBeenCalledTimes(1);
+    const semId = build({ status: 'DONE', privateReplyUsed: true, lastInteractionAt: new Date() });
+    await semId.service.resume({ runId: 'r1', nodeId: 'm3' });
+    expect(semId.instagram.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('clique no link devolve a URL e enfileira a continuação uma vez', async () => {
     const { service, queue } = build();
     const url = await service.handleLinkClick('r1', 'b1');
