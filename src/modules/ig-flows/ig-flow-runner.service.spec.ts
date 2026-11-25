@@ -59,6 +59,7 @@ function build(runOverrides: Record<string, any> = {}) {
     },
     channel: { findUnique: jest.fn().mockResolvedValue({ id: 'ch1' }) },
     conversation: { update: jest.fn() },
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
   const instagram = {
     sendMessage: jest.fn().mockResolvedValue({ message_id: 'mid' }),
@@ -223,6 +224,34 @@ describe('IgFlowRunnerService', () => {
     const semId = build({ status: 'DONE', privateReplyUsed: true, lastInteractionAt: new Date() });
     await semId.service.resume({ runId: 'r1', nodeId: 'm3' });
     expect(semId.instagram.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  // Bravy OS 25/11 (LIDER, pedido do Estrategista): a espera não manda o follow-up do horário se a conversa já recebeu
+  // mensagem nossa depois da criação da execução, do agente, do time ou de outro fluxo (não a do próprio fluxo).
+  it('job de atraso fecha a execução em espera que já foi respondida por agente, time ou outro fluxo', async () => {
+    const { service, instagram, getRun, prisma } = build({ status: 'WAITING', createdAt: new Date('2026-11-25T03:53:00Z'),
+      privateReplyUsed: true, lastInteractionAt: new Date() });
+    prisma.$queryRaw.mockResolvedValue([{ ok: 1 }]);
+    await service.resume({ runId: 'r1', nodeId: 'm3' }, 'delay-r1-d');
+    expect(instagram.sendMessage).not.toHaveBeenCalled();
+    expect(getRun().status).toBe('DONE');
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    const sql = (prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+    expect(sql).toMatch(/direction = 'OUTBOUND'/);
+    expect(sql).toMatch(/igFlowId/);
+    expect(sql).toMatch(/sender_id is not null/);
+    expect(prisma.$queryRaw.mock.calls[0]).toEqual(expect.arrayContaining(['ch1', 'u1', 'f1']));
+  });
+
+  it('sem resposta nossa depois da criação, a espera manda o follow-up; clique não consulta', async () => {
+    const espera = build({ status: 'WAITING', createdAt: new Date('2026-11-25T03:53:00Z'), privateReplyUsed: true, lastInteractionAt: new Date() });
+    await espera.service.resume({ runId: 'r1', nodeId: 'm3' }, 'delay-r1-d');
+    expect(espera.instagram.sendMessage).toHaveBeenCalledTimes(1);
+    const clique = build({ status: 'WAITING', privateReplyUsed: true, lastInteractionAt: new Date() });
+    clique.prisma.$queryRaw.mockResolvedValue([{ ok: 1 }]);
+    await clique.service.resume({ runId: 'r1', nodeId: 'm3' }, 'click-r1-b1');
+    expect(clique.prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(clique.instagram.sendMessage).toHaveBeenCalledTimes(1);
   });
 
   it('clique no link devolve a URL e enfileira a continuação uma vez', async () => {

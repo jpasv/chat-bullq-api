@@ -203,10 +203,20 @@ export class IgFlowRunnerService {
    */
   async resume(job: IgFlowResumeJob, jobId?: string): Promise<void> {
     if (jobId?.startsWith('delay-')) {
-      const atual = await this.prisma.igFlowRun.findUnique({ where: { id: job.runId }, select: { status: true } });
+      const atual = await this.prisma.igFlowRun.findUnique({
+        where: { id: job.runId },
+        select: { status: true, createdAt: true, flowId: true, channelId: true, contactExternalId: true },
+      });
       if (!atual || FINISHED.includes(atual.status as IgFlowRunStatus)) {
         this.logger.log(`Atraso da execução ${job.runId} pulado: execução ${atual?.status ?? 'inexistente'}`);
         if (atual) await this.appendLog(job.runId, { nodeId: job.nodeId, event: 'resume_skipped_finished' });
+        return;
+      }
+      // Bravy OS 25/11: a conversa já recebeu mensagem nossa depois da criação da execução (agente, time ou outro
+      // fluxo; não a do próprio fluxo): o follow-up do horário sairia repetido; a execução fecha sem mandar.
+      if (await this.respondidaDepois(atual)) {
+        this.logger.log(`Atraso da execução ${job.runId} pulado: a conversa já teve resposta nossa (agente, time ou outro fluxo)`);
+        await this.finish(job.runId, 'DONE', { nodeId: job.nodeId, event: 'resume_skipped_answered' });
         return;
       }
     }
@@ -214,6 +224,28 @@ export class IgFlowRunnerService {
       await this.prisma.igFlowRun.update({ where: { id: job.runId }, data: { lastInteractionAt: new Date() } });
     }
     await this.execute(job.runId, job.nodeId);
+  }
+
+  /** Mensagem OUTBOUND na conversa da pessoa depois de `createdAt`, de agente ou time (sender_id) ou de outro fluxo.
+   * messages.created_at é timestamp sem fuso, em UTC: a comparação com o Date só fica certa com a sessão do banco em
+   * UTC (é o padrão do Chat BullQ); se a connection string mudar o TimeZone, a janela desloca. */
+  private async respondidaDepois(run: {
+    createdAt: Date;
+    flowId: string;
+    channelId: string;
+    contactExternalId: string | null;
+  }): Promise<boolean> {
+    if (!run.contactExternalId) return false;
+    const rows = await this.prisma.$queryRaw<Array<{ ok: number }>>`
+      select 1 as ok from messages m
+        join conversations cv on cv.id = m.conversation_id
+        join contact_channels cc on cc.contact_id = cv.contact_id and cc.channel_id = cv.channel_id
+       where cv.channel_id = ${run.channelId} and cc.external_id = ${run.contactExternalId} and cv.deleted_at is null
+         and m.direction = 'OUTBOUND' and m.created_at > ${run.createdAt}
+         and coalesce(m.metadata->>'igFlowId', '') <> ${run.flowId}
+         and (m.sender_id is not null or m.metadata->>'igFlowId' is not null)
+       limit 1`;
+    return rows.length > 0;
   }
 
   // ─── Engine ───────────────────────────────────
