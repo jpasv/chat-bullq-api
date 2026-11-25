@@ -41,22 +41,25 @@ export class KirvanoEventsProcessor extends WorkerHost {
     }
 
     const k = normalizeKirvano(record.payload);
+    // Org/canal de outreach (1 org por enquanto), lida antes de tudo: toda saída (DUPLICATE, IGNORED, FAILED,
+    // PROCESSED) grava a org; antes só o PROCESSED gravava e as consultas por org não viam o resto.
+    const organizationId = this.config.orgId || undefined;
+    const channelId = this.config.outreachChannelId;
 
     // Idempotência de ação: se a mesma (event, sale) já foi processada antes
     // (retry/duplicata da Kirvano), só registra DUPLICATE e não reprocessa.
     if (await this.events.alreadyProcessed(record.id, k.event, k.saleId)) {
-      await this.events.markDuplicate(record.id);
+      await this.events.markDuplicate(record.id, organizationId);
       this.logger.log(`Kirvano ${k.event} sale=${k.saleId} → DUPLICATE (já processado)`);
       return;
     }
 
-    // Org/canal de outreach (1 org por enquanto). Sem config → falha explícita.
-    const organizationId = this.config.orgId;
-    const channelId = this.config.outreachChannelId;
+    // Sem config → falha explícita.
     if (!organizationId || !channelId) {
       await this.events.markFailed(
         record.id,
         'RECOVERY_ORG_ID/RECOVERY_OUTREACH_CHANNEL_ID não configurados',
+        organizationId,
       );
       return;
     }
@@ -66,6 +69,7 @@ export class KirvanoEventsProcessor extends WorkerHost {
       await this.events.markIgnored(
         record.id,
         `produto não rastreado: ${k.productUuid}`,
+        organizationId,
       );
       return;
     }
@@ -87,7 +91,7 @@ export class KirvanoEventsProcessor extends WorkerHost {
           result = await this.recovery.closeRefunded(organizationId, k);
           break;
         default:
-          await this.events.markIgnored(record.id, `evento sem ação: ${k.event}`);
+          await this.events.markIgnored(record.id, `evento sem ação: ${k.event}`, organizationId);
           return;
       }
 
@@ -95,6 +99,7 @@ export class KirvanoEventsProcessor extends WorkerHost {
         await this.events.markIgnored(
           record.id,
           `sem card pra ${k.event} (sale=${k.saleId})`,
+          organizationId,
         );
       } else {
         await this.events.markProcessed(record.id, organizationId);
@@ -105,7 +110,7 @@ export class KirvanoEventsProcessor extends WorkerHost {
     } catch (err) {
       const msg = (err as Error).message;
       this.logger.error(`Falha processando Kirvano ${record.id}: ${msg}`);
-      await this.events.markFailed(record.id, msg);
+      await this.events.markFailed(record.id, msg, organizationId);
       throw err; // deixa o BullMQ tentar de novo
     }
   }
