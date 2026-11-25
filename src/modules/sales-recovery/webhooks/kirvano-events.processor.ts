@@ -43,7 +43,7 @@ export class KirvanoEventsProcessor extends WorkerHost {
     const k = normalizeKirvano(record.payload);
     // Org/canal de outreach (1 org por enquanto), lida antes de tudo: toda saída (DUPLICATE, IGNORED, FAILED,
     // PROCESSED) grava a org; antes só o PROCESSED gravava e as consultas por org não viam o resto.
-    const organizationId = this.config.orgId ?? undefined;
+    const organizationId = this.config.orgId || undefined;
     const channelId = this.config.outreachChannelId;
 
     // Idempotência de ação: se a mesma (event, sale) já foi processada antes

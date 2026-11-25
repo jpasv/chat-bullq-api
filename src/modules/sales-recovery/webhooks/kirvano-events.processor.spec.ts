@@ -70,5 +70,9 @@ describe('KirvanoEventsProcessor: organization_id em toda saída', () => {
     const cfg = montar({ org: null });
     await cfg.proc.process(cfg.job);
     expect(cfg.events.markFailed).toHaveBeenCalledWith('ke1', expect.stringMatching(/não configurados/), undefined);
+    // RECOVERY_ORG_ID vazio conta como sem config (Revisor 23h05, Minor 2)
+    const vazio = montar({ jaProcessado: true, org: '' });
+    await vazio.proc.process(vazio.job);
+    expect(vazio.events.markDuplicate).toHaveBeenCalledWith('ke1', undefined);
   });
 });
