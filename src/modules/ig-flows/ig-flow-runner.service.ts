@@ -226,7 +226,9 @@ export class IgFlowRunnerService {
     await this.execute(job.runId, job.nodeId);
   }
 
-  /** Mensagem OUTBOUND na conversa da pessoa depois de `createdAt`, de agente ou time (sender_id) ou de outro fluxo. */
+  /** Mensagem OUTBOUND na conversa da pessoa depois de `createdAt`, de agente ou time (sender_id) ou de outro fluxo.
+   * messages.created_at é timestamp sem fuso, em UTC: a comparação com o Date só fica certa com a sessão do banco em
+   * UTC (é o padrão do Chat BullQ); se a connection string mudar o TimeZone, a janela desloca. */
   private async respondidaDepois(run: {
     createdAt: Date;
     flowId: string;
