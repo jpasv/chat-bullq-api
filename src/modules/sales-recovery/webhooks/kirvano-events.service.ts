@@ -60,10 +60,12 @@ export class KirvanoEventsService {
     return !!prior;
   }
 
-  async markDuplicate(id: string): Promise<void> {
+  // organizationId em toda saída (não só no PROCESSED): as consultas por org (recuperação, SLA, reembolso) leem
+  // também IGNORED e DUPLICATE. undefined = não grava (sem RECOVERY_ORG_ID).
+  async markDuplicate(id: string, organizationId?: string): Promise<void> {
     await this.prisma.kirvanoEvent.update({
       where: { id },
-      data: { status: KirvanoEventStatus.DUPLICATE, processedAt: new Date() },
+      data: { status: KirvanoEventStatus.DUPLICATE, organizationId, processedAt: new Date() },
     });
   }
 
@@ -78,21 +80,22 @@ export class KirvanoEventsService {
     });
   }
 
-  async markIgnored(id: string, reason?: string): Promise<void> {
+  async markIgnored(id: string, reason?: string, organizationId?: string): Promise<void> {
     await this.prisma.kirvanoEvent.update({
       where: { id },
       data: {
         status: KirvanoEventStatus.IGNORED,
         errorMessage: reason,
+        organizationId,
         processedAt: new Date(),
       },
     });
   }
 
-  async markFailed(id: string, message: string): Promise<void> {
+  async markFailed(id: string, message: string, organizationId?: string): Promise<void> {
     await this.prisma.kirvanoEvent.update({
       where: { id },
-      data: { status: KirvanoEventStatus.FAILED, errorMessage: message },
+      data: { status: KirvanoEventStatus.FAILED, errorMessage: message, organizationId },
     });
   }
 }
