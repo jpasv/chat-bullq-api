@@ -196,7 +196,20 @@ export class IgFlowRunnerService {
     return button.url;
   }
 
-  async resume(job: IgFlowResumeJob): Promise<void> {
+  /**
+   * Continua a execução no nó do job. Job de atraso (jobId delay-<run>-<nó>) de execução já encerrada (DONE ou FAILED,
+   * ex.: cancelada pelo time) não volta: antes o execute punha RUNNING de novo e mandava a mensagem do horário.
+   * A continuação do clique (click-...) segue como antes.
+   */
+  async resume(job: IgFlowResumeJob, jobId?: string): Promise<void> {
+    if (jobId?.startsWith('delay-')) {
+      const atual = await this.prisma.igFlowRun.findUnique({ where: { id: job.runId }, select: { status: true } });
+      if (!atual || FINISHED.includes(atual.status as IgFlowRunStatus)) {
+        this.logger.log(`Atraso da execução ${job.runId} pulado: execução ${atual?.status ?? 'inexistente'}`);
+        if (atual) await this.appendLog(job.runId, { nodeId: job.nodeId, event: 'resume_skipped_finished' });
+        return;
+      }
+    }
     if (job.interaction) {
       await this.prisma.igFlowRun.update({ where: { id: job.runId }, data: { lastInteractionAt: new Date() } });
     }
